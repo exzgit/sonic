@@ -2,5 +2,6 @@
 # -----------------
 # sonic main adalah file test untuk kode fungsi main
 
-let a: std::collections::map = 10
-std.collections.map()
+fn main() -> i32 {
+  println("Hello, World!")
+}

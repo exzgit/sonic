@@ -39,7 +39,7 @@ struct FunctionDecl : Stmt {
       bool hasTypeParams,
       vector<unique_ptr<Type>> typeParams)
     : name(std::move(name)), return_types(std::move(return_types)),
-    params(std::move(params)), body(std::move(params)),
+    params(std::move(params)), body(std::move(body)),
     isPublic(isPublic), hasTypeParams(hasTypeParams),
     typeParams(std::move(typeParams)) {}
 

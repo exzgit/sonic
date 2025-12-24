@@ -221,7 +221,7 @@ class ASTDebugger : public Visitor {
         idx++;
           for (auto& arg : stmt.params) arg->accept(*this);
         idx--;
-        cout << indent() << "body:\n";
+        cout << indent() << "body[" << stmt.body.size() << "]\n";
         idx++;
           for (auto& child : stmt.body) child->accept(*this);
         idx--;

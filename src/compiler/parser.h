@@ -28,10 +28,11 @@ namespace frontend {
 
     private:
 
-      unique_ptr<Stmt> parse_stmt();
+      vector<unique_ptr<Stmt>> parse_body(TokenKind kind);
 
       unique_ptr<Type> parse_type();
       unique_ptr<Stmt> parse_assignment();
+      unique_ptr<Stmt> parse_letdecl();
       unique_ptr<Stmt> parse_function_stmt(bool is_public);
       unique_ptr<Expr> parse_expression();
       unique_ptr<Expr> parse_value_literal();
