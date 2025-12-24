@@ -1,0 +1,5 @@
+# hello.sn
+
+fn main() {
+  println("Hello, World!");
+}
