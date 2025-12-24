@@ -229,7 +229,7 @@ class ASTDebugger : public Visitor {
         idx++;
           stmt.return_types->accept(*this);
         idx--;
-        cout << indent() << "isPublic: " << (stmt.isPublic ? "yes" : "no") << "\n"
+        cout << indent() << "isPublic: " << (stmt.isPublic ? "yes" : "no") << "\n";
         if (stmt.hasTypeParams) {
           cout << indent() << "typeParams[" << stmt.typeParams.size() << "]\n";
           idx++;

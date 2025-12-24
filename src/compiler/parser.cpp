@@ -14,8 +14,7 @@ namespace frontend {
     vector<unique_ptr<Stmt>> nodes;
 
     while (tok.kind != TokenKind::END_OF_FILE) {
-      unique_ptr<Stmt> stmt = parse_stmt();
-      if (stmt) nodes.push_back(stmt);
+      nodes.push_back(parse_stmt());
     }
 
     return nodes;
@@ -156,8 +155,7 @@ namespace frontend {
     consume(TokenKind::LBRACE);
 
     while (tok.kind != TokenKind::RBRACE && tok.kind != TokenKind::END_OF_FILE) {
-      unique_ptr<Stmt> stmt = parse_stmt();
-      if (stmt) body.push_back(stmt);
+      body.push_back(parse_stmt());
     }
 
     consume(TokenKind::RBRACE);
