@@ -1,6 +1,5 @@
 #pragma once
 
-
 #include <string>
 #include <memory>
 
@@ -20,6 +19,23 @@ enum TypeKind {
   Function,
   GenericParam,
   GenericInstance
+};
+
+
+enum TypePrimitive {
+  String,
+  Char,
+  I8,
+  I16,
+  I32,
+  I64,
+  I128,
+  U8,
+  U16,
+  U32,
+  U64,
+  U128,
+  Bool
 };
 
 struct Type {
@@ -44,20 +60,4 @@ struct Type {
 
   // modifiers
   bool is_mutable = false;
-};
-
-enum TypePrimitive {
-  String,
-  Char,
-  I8,
-  I16,
-  I32,
-  I64,
-  I128,
-  U8,
-  U16,
-  U32,
-  U64,
-  U128,
-  Bool
 };
