@@ -42,6 +42,7 @@ namespace frontend {
       virtual void visit(LeteralDecl& stmt)       = 0;
       virtual void visit(AssignDecl& stmt)        = 0;
       virtual void visit(BranchStmt& stmt)        = 0;
+      virtual void visit(ForLoopStmt& stmt)        = 0;
     virtual void visit(ExprStmt& stmt)            = 0;
   };
 
