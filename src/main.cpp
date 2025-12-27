@@ -39,11 +39,11 @@ int main(int argc, char** argv) {
       auto nodes = parser.parse();
       cout << "Nodes generated\n";
 
+
       ASTDebugger debug = ASTDebugger();
-      for (auto& node : nodes) {
-        node->accept(debug);
-      }
       ErrorHandler::debug();
+
+      nodes->accept(debug);
     }
   } else
     cout << "usage: sonic run <filepath>\n";
