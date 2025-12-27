@@ -26,6 +26,7 @@ void BinOp::accept(Visitor& v) { v.visit(*this); }
 void UnOp::accept(Visitor& v) { v.visit(*this); }
 void AddressOf::accept(Visitor& v) { v.visit(*this); }
 void GetValuePtr::accept(Visitor& v) { v.visit(*this); }
+void Range::accept(Visitor& v) { v.visit(*this); }
 
 // Type accept implementations
 void AutoType::accept(Visitor& v) { v.visit(*this); }

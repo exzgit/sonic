@@ -109,7 +109,24 @@ namespace frontend {
     Visibility visibility = Visibility::PRIVATE;
 
     // parse public
-    if (accept(TokenKind::PUBLIC)) visibility = Visibility::PUBLIC;
+    if (accept(TokenKind::PUBLIC)) {
+      visibility = Visibility::PUBLIC;
+
+      if (tok.kind != TokenKind::FUNCTION && 
+          tok.kind != TokenKind::LET &&
+          tok.kind != TokenKind::STATIC &&
+          tok.kind != TokenKind::CONST) {
+
+        stringstream error;
+        error << "\033[31merrors:\033[0m unexpected public statement `" << TokenKindToValue(tok.kind) <<"`\n";
+        error << "  at " << tok.files << ":" << tok.line << ":" << tok.column << "\n";
+        error << "  --> " << tok.source << "\n";
+        ErrorHandler::create(error.str());
+
+        consume(tok.kind);
+        return make_unique<ExprStmt>(make_unique<NoneExpr>());
+      }
+    }
 
     // parse function declaration
     if (accept(TokenKind::FUNCTION)) {
@@ -201,7 +218,7 @@ namespace frontend {
       // if mutability shows a literal result then
       // this is a lethal / variable declaration,
       // and here the type can be written directly or not.
-      if (mutability == Mutability::LETERAL) {
+      if (mutability != Mutability::STATIC || mutability != Mutability::CONST) {
         if (accept(TokenKind::COLON))
           types = parse_type();
         if (accept(TokenKind::EQUAL)) 
@@ -358,7 +375,23 @@ namespace frontend {
     }
 
     if (accept(TokenKind::FOR)) {
-      // todo: implementation of for loop will be written later
+      unique_ptr<Expr> initializer = make_unique<IdentifierExpr>(tok.value);
+      consume(TokenKind::IDENTIFIER);
+
+      consume(TokenKind::IN);
+
+      unique_ptr<Expr> iterator;
+      unique_ptr<Expr> starts = parse_expression(0);
+      if (accept(TokenKind::DOT)) {
+        consume(TokenKind::DOT);
+
+        unique_ptr<Expr> ends = parse_expression(0);
+        iterator = make_unique<Range>(std::move(starts), std::move(ends));
+      } else iterator = std::move(starts);
+
+      unique_ptr<Stmt> body = parse_block();
+
+      return make_unique<ForLoopStmt>(std::move(initializer), std::move(iterator), std::move(body));
     }
 
     if (visibility == Visibility::PUBLIC) {

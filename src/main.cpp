@@ -28,17 +28,8 @@ int main(int argc, char** argv) {
       }
 
       Lexer lexer = Lexer(content, filepath);
-
-      // Token token;
-      // while ((token = lexer.next()).kind != TokenKind::END_OF_FILE) {
-      //   token.debug();
-      // }
-      // exit(0);
-
       Parser parser = Parser(filepath, &lexer);
       auto nodes = parser.parse();
-      cout << "Nodes generated\n";
-
 
       ASTDebugger debug = ASTDebugger();
       ErrorHandler::debug();

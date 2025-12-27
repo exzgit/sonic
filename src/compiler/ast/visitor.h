@@ -28,6 +28,7 @@ class Visitor {
   virtual void visit(AddressOf& expr)         = 0;
   virtual void visit(GetValuePtr& expr)       = 0;
   virtual void visit(Parameter& expr)         = 0;
+  virtual void visit(Range& expr)         = 0;
 
   // visitor for type
   virtual void visit(AutoType& type)          = 0;

@@ -136,6 +136,15 @@ namespace frontend {
     void accept(Visitor& v) override;
   };
 
+  struct Range : Expr {
+    unique_ptr<Expr> start;
+    unique_ptr<Expr> end;
+
+    Range(unique_ptr<Expr> start, unique_ptr<Expr> end) : start(std::move(start)), end(std::move(end)) {}
+
+    void accept(Visitor& v) override;
+  };
+
   struct AddressOf : Expr {
     unique_ptr<Expr> target;
 

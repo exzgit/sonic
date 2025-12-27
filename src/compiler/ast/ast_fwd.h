@@ -24,6 +24,7 @@ namespace frontend {
 	struct CallExpr;
 	struct VecExpr;
 	struct MapExpr;
+	struct Range;
 	struct BinOp;
 	struct UnOp;
 	struct AddressOf;

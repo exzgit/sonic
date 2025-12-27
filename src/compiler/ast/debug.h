@@ -150,6 +150,20 @@ class ASTDebugger : public Visitor {
       idx--;
     }
 
+    virtual void visit(Range& expr) {
+      cout << indent() << "- Range\n";
+      idx++;
+        cout << indent() << "start:\n";
+        idx++;
+          expr.start->accept(*this);
+        idx--;
+        cout << indent() << "end:\n";
+        idx++;
+          expr.end->accept(*this);
+        idx--;
+      idx--;
+    }
+
     // visitor for type
     virtual void visit(AutoType& type) {
       cout << indent() << "- Type(Auto)\n";
@@ -188,9 +202,9 @@ class ASTDebugger : public Visitor {
       cout << indent() << "- Type(QualifiedType)\n";
       idx++;
         cout << indent() << "segments: ";
-        for (int i = 0; i < type.segments.size(); i++) {
+        for (int i = 0; i < (int)type.segments.size(); i++) {
           cout << type.segments[i];
-          if (i < type.segments.size() - 1) cout << "::";
+          if (i < (int)type.segments.size() - 1) cout << "::";
         }
         cout << "\n";
       idx--;
@@ -262,6 +276,8 @@ class ASTDebugger : public Visitor {
         idx++;
           stmt.values->accept(*this);
         idx--;
+        cout << indent() << "mutability: " << mutabilityToString(stmt.mutability) << "\n";
+        cout << indent() << "visibility: " << visibilityToString(stmt.visibility) << "\n";
       idx--;
     }
 

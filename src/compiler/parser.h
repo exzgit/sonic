@@ -42,9 +42,9 @@ namespace frontend {
       bool consume(TokenKind kind);
 
     private:
-      Lexer* lexer;
       string files;
 
+      Lexer* lexer;
       Token tok;
   };
 };
