@@ -41,10 +41,12 @@ class Visitor {
 
   // visitor for statement node
   virtual void visit(FunctionDecl& stmt)      = 0;
-  virtual void visit(LeteralDecl& stmt)       = 0;
+  virtual void visit(VarDecl& stmt)       = 0;
   virtual void visit(AssignDecl& stmt)        = 0;
   virtual void visit(BranchStmt& stmt)        = 0;
   virtual void visit(ExprStmt& stmt)          = 0;
+  virtual void visit(ForLoopStmt& stmt)       = 0;
+  virtual void visit(BlockStmt& stmt)         = 0;
 };
 
 };
