@@ -30,7 +30,12 @@ namespace frontend {
 
       unique_ptr<Stmt> parse_block();
 
-      unique_ptr<Stmt> parse_stmt();
+      unique_ptr<Stmt> parse_stmt(Visibility visibility);
+      unique_ptr<Stmt> parse_function_stmt(Visibility visibility);
+      unique_ptr<Stmt> parse_forloop_stmt();
+      unique_ptr<Stmt> parse_if_stmt();
+      unique_ptr<Stmt> parse_assignment_stmt();
+      unique_ptr<Stmt> parse_letdecl(Visibility visibility, Mutability mutability);
 
       unique_ptr<Type> parse_type();
       unique_ptr<Expr> parse_expression(int min_prec);

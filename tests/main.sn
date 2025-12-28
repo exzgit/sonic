@@ -2,6 +2,8 @@
 # -----------------
 # sonic main adalah file test untuk kode fungsi main
 
-fn main() -> i32 {
-  public let a: i32 = 20
+public fn main() -> i32 {
+  let a: i32 = 20
 }
+
+public
