@@ -245,7 +245,7 @@ class ASTDebugger : public Visitor {
         idx++;
           stmt.return_types->accept(*this);
         idx--;
-        cout << indent() << "Visibility: " << visibilityToString(stmt.visibility) << "\n";
+        cout << indent() << "is_public: " << (stmt.is_public ? "yes" : "no") << "\n";
         if (stmt.hasTypeParams) {
           cout << indent() << "typeParams[" << stmt.typeParams.size() << "]\n";
           idx++;
@@ -265,8 +265,8 @@ class ASTDebugger : public Visitor {
       idx--;
     }
 
-    virtual void visit(VarDecl& stmt) {
-      cout << indent() << "- VarDecl(" << stmt.name << ")\n";
+    virtual void visit(LetDecl& stmt) {
+      cout << indent() << "- LetDecl(" << stmt.name << ")\n";
       idx++;
         cout << indent() << "types:\n";
         idx++;
@@ -276,8 +276,8 @@ class ASTDebugger : public Visitor {
         idx++;
           stmt.values->accept(*this);
         idx--;
-        cout << indent() << "mutability: " << mutabilityToString(stmt.mutability) << "\n";
-        cout << indent() << "visibility: " << visibilityToString(stmt.visibility) << "\n";
+        cout << indent() << "is_public: " << (stmt.is_public ? "yes" : "no") << "\n";
+        cout << indent() << "modifiers: " << modifiersToString(stmt.modifiers) << "\n";
       idx--;
     }
 
@@ -311,7 +311,21 @@ class ASTDebugger : public Visitor {
     }
 
     virtual void visit(ForLoopStmt& stmt) {
-      
+      cout << indent() << "- ForLoopStmt\n";
+      idx++;
+        cout << indent() << "initializer:\n";
+        idx++;
+          stmt.initializer->accept(*this);
+        idx--;
+        cout << indent() << "iterator:\n";
+        idx++;
+          stmt.iterator->accept(*this);
+        idx--;
+        cout << indent() << "body:\n";
+        idx++;
+          stmt.body->accept(*this);
+        idx--;
+      idx--;
     }
 
     virtual void visit(BlockStmt& stmt) {

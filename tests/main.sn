@@ -3,7 +3,5 @@
 # sonic main adalah file test untuk kode fungsi main
 
 public fn main() -> i32 {
-  let a: i32 = 20
+  static hello: str = "Hello, World"
 }
-
-public

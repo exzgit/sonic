@@ -14,49 +14,8 @@ namespace frontend {
     vector<unique_ptr<Stmt>> nodes;
 
     // start parsing statements at the global scope level
-    while (tok.kind != TokenKind::END_OF_FILE) {
-
-      // default visibility is private
-      Visibility visibility = Visibility::PRIVATE;
-
-      // parse public
-      if (accept(TokenKind::PUBLIC)) {
-        visibility = Visibility::PUBLIC;
-
-        if (tok.kind != TokenKind::FUNCTION && 
-          tok.kind != TokenKind::STATIC &&
-          tok.kind != TokenKind::CONST) {
-
-          stringstream error;
-          error << "\033[31merrors:\033[0m unexpected statements `" << TokenKindToValue(tok.kind) <<"` at global scope.\n";
-          error << "  at " << tok.files << ":" << tok.line << ":" << tok.column << "\n";
-          error << "  --> " << tok.source << "\n";
-          ErrorHandler::create(error.str());
-
-          consume(tok.kind);
-          return make_unique<ExprStmt>(make_unique<NoneExpr>());
-        }
-      }
-
-      if (tok.kind == TokenKind::END_OF_FILE) break;
-
-      if (tok.kind != TokenKind::FUNCTION || 
-          tok.kind != TokenKind::STATIC || 
-          tok.kind != TokenKind::CONST
-          )
-      {
-        nodes.push_back(parse_stmt(visibility));
-      } else {
-        stringstream error;
-        error << "\033[31merrors:\033[0m unexpected token `" << TokenKindToValue(tok.kind) <<"`\n";
-        error << "  at " << tok.files << ":" << tok.line << ":" << tok.column << "\n";
-        error << "  --> " << tok.source << "\n";
-        ErrorHandler::create(error.str());
-
-        consume(tok.kind);
-      }
-
-    }
+    while (tok.kind != TokenKind::END_OF_FILE)
+      nodes.push_back(parse_stmt(false));
 
     return make_unique<BlockStmt>(std::move(nodes));
   }
@@ -145,242 +104,254 @@ namespace frontend {
   // arguments: []
   // returns: unique_ptr<Stmt>
   //
-  unique_ptr<Stmt> Parser::parse_stmt(Visibility visibility) {
+  unique_ptr<Stmt> Parser::parse_stmt(bool at_local_scope) {
+    bool is_public = false;
 
-    // parse function declaration
-    if (accept(TokenKind::FUNCTION)) return parse_function_stmt(visibility);
-
-    // Does the current token represent one of LET | CONST | STATIC
-    switch(tok.kind) {
-      case TokenKind::LET: {
-                                accept(tok.kind);
-                                return parse_letdecl(visibility, Mutability::LETERAL);
-                              }
-
-      case TokenKind::STATIC: {
-                                accept(tok.kind);
-                                return parse_letdecl(visibility, Mutability::STATIC);
-                              }
-
-      case TokenKind::CONST: {
-                                accept(tok.kind);
-                                return parse_letdecl(visibility, Mutability::CONST);
-                              }
-      default: break;
+    if (!at_local_scope && accept(TokenKind::PUBLIC)) {
+      is_public = true;
     }
-
-    if (accept(TokenKind::IF)) return parse_if_stmt();
-    if (accept(TokenKind::FOR)) return parse_forloop_stmt();
-
-    // parse assignment or function calling
-    if (tok.kind == TokenKind::IDENTIFIER) return parse_assignment_stmt();
-
-    if (tok.kind == TokenKind::PUBLIC) {
+    else if (at_local_scope && tok.kind == TokenKind::PUBLIC) {
       stringstream error;
-      error << "\033[31merrors:\033[0m unexpected `" << TokenKindToValue(tok.kind) <<"` keyword at local scope.\n";
+      error << "\033[31merrors:\033[0m unexpected `public` statement at local scope.\n";
       error << "  at " << tok.files << ":" << tok.line << ":" << tok.column << "\n";
       error << "  --> " << tok.source << "\n";
       ErrorHandler::create(error.str());
-    } else {
-      stringstream error;
-      error << "\033[31merrors:\033[0m unexpected token `" << TokenKindToValue(tok.kind) <<"`\n";
-      error << "  at " << tok.files << ":" << tok.line << ":" << tok.column << "\n";
-      error << "  --> " << tok.source << "\n";
-      ErrorHandler::create(error.str());
+
+      accept(TokenKind::PUBLIC); // skip 'public' keyword
+      return nullptr;
     }
 
-    consume(tok.kind);
+    if (tok.kind == TokenKind::LET ||
+      tok.kind == TokenKind::CONST ||
+      tok.kind == TokenKind::STATIC) {
 
-    return make_unique<ExprStmt>(make_unique<NoneExpr>());
-  }
-
-  unique_ptr<Stmt> Parser::parse_function_stmt(Visibility visibility) {
-    // get identifier
-    string name = tok.value;
-    consume(TokenKind::IDENTIFIER);
-
-    // Take a generic param if the function supports it
-    vector<unique_ptr<Type>> typeParams;
-    bool hasTypeParams = false;
-    if (accept(TokenKind::LESS)) {
-      hasTypeParams = true;
-      while (tok.kind != TokenKind::GREATER && tok.kind != TokenKind::END_OF_FILE) {
-        typeParams.push_back(parse_type());
-        if (!accept(TokenKind::COMMA)) break;
+      Modifiers mod = Modifiers::LETERAL;
+      switch (tok.kind) {
+        case TokenKind::CONST: mod = Modifiers::CONST; break;
+        case TokenKind::STATIC: mod = Modifiers::STATIC; break;
+        default: break;
       }
-      consume(TokenKind::GREATER);
-    }
 
-    consume(TokenKind::LPARENT); // consume '('
-
-    // get the function parameters
-    vector<unique_ptr<Stmt>> parameter;
-    while (tok.kind != TokenKind::RPARENT && tok.kind != TokenKind::END_OF_FILE) {
+      accept(tok.kind);
 
       string name = tok.value;
-      consume(TokenKind::IDENTIFIER);
-      consume(TokenKind::COLON);
-      unique_ptr<Type> types = parse_type();
+      if (!accept(TokenKind::IDENTIFIER)) {
+        stringstream error;
+        error << "\033[31merrors:\033[0m expected variable name, but found `" << TokenKindToValue(tok.kind) <<"`";
+        if (tok.kind == TokenKind::NUMBER) error << " number.\n";
+        else if (tok.kind == TokenKind::IDENTIFIER) error << " identifier.\n";
+        else error << " keyword / punctuation.\n";
+        error << "  at " << tok.files << ":" << tok.line << ":" << tok.column << "\n";
+        error << "  --> " << tok.source << "\n";
+        ErrorHandler::create(error.str());
+      }
 
-      parameter.push_back(make_unique<Parameter>(name, std::move(types)));
+      // default type is automatically typed
+      unique_ptr<Type> types = make_unique<AutoType>();
 
-      if (!accept(TokenKind::COMMA)) break;
-    }
+      // default value is none
+      unique_ptr<Expr> value = make_unique<NoneExpr>();
 
-    consume(TokenKind::RPARENT); // consume ')'
-
-    // default return type is void
-    unique_ptr<Type> return_types = make_unique<VoidType>();
-
-    // if there in an arrow, it means the return type of this function is explicitly defined
-    if (accept(TokenKind::ARROW)) {
-      return_types = parse_type();
-    }
-
-    // parsing the function body
-    unique_ptr<Stmt> body = parse_block();
-
-    return make_unique<FunctionDecl>(
-      std::move(name),
-      std::move(return_types),
-      std::move(parameter),
-      std::move(body),
-      visibility,
-      hasTypeParams,
-      std::move(typeParams)
-    );
-  }
-
-  unique_ptr<Stmt> Parser::parse_letdecl(Visibility visibility, Mutability mutability) {
-    string name = tok.value;
-    if (!accept(TokenKind::IDENTIFIER)) {
-      stringstream error;
-      error << "\033[31merrors:\033[0m expected variable name, but found `" << TokenKindToValue(tok.kind) <<"`";
-      if (tok.kind == TokenKind::NUMBER) error << " number.\n";
-      else if (tok.kind == TokenKind::IDENTIFIER) error << " identifier.\n";
-      else error << " keyword / punctuation.\n";
-      
-      error << "  at " << tok.files << ":" << tok.line << ":" << tok.column << "\n";
-      error << "  --> " << tok.source << "\n";
-      ErrorHandler::create(error.str());
-    }
-
-    // default type is automatically typed
-    unique_ptr<Type> types = make_unique<AutoType>();
-
-    // default value is none
-    unique_ptr<Expr> value = make_unique<NoneExpr>();
-
-    // if mutability shows a literal result then
-    // this is a lethal / variable declaration,
-    // and here the type can be written directly or not.
-    if (mutability != Mutability::STATIC || mutability != Mutability::CONST) {
-      if (accept(TokenKind::COLON))
-      {
+      if (mod == Modifiers::LETERAL) {
+        if (accept(TokenKind::COLON))
+        {
+          types = parse_type();
+          if (accept(TokenKind::EQUAL)) {
+            value = parse_expression(0);
+          }
+        }
+      } else {
+        consume(TokenKind::COLON);
         types = parse_type();
-        if (accept(TokenKind::EQUAL)) value = parse_expression(0);
-      }
-    }
-    else {
-      // if it is not lethal mutability, then it is mandatory to use the type
-      consume(TokenKind::COLON);
-      types = parse_type();
-
-      // if it is not lethal mutability, then it is mandatory to provide an initial value
-      consume(TokenKind::EQUAL);
-      value = parse_expression(0);
-    }
-
-    return make_unique<VarDecl>(
-      std::move(name),
-      std::move(types),
-      std::move(value),
-      mutability,
-      visibility
-    );
-  }
-
-  unique_ptr<Stmt> Parser::parse_assignment_stmt() {
-    unique_ptr<Expr> expr = make_unique<IdentifierExpr>(tok.value);
-    consume(TokenKind::IDENTIFIER);
-
-    while (tok.kind != TokenKind::END_OF_FILE) {
-
-      // member access: a.b
-      if (tok.kind == TokenKind::DOT) {
-        consume(TokenKind::DOT);
-
-        if (tok.kind != TokenKind::IDENTIFIER) {
-          consume(TokenKind::IDENTIFIER);
-          break;
-        }
-
-        string member = tok.value;
-        consume(TokenKind::IDENTIFIER);
-
-        expr = make_unique<LookupExpr>(
-          std::move(expr),
-          make_unique<IdentifierExpr>(member)
-        );
-
-        continue;
-      }
-
-      if (tok.kind == TokenKind::EQUAL) {
         consume(TokenKind::EQUAL);
-        unique_ptr<Expr> values = parse_expression(0);
-        return make_unique<AssignDecl>("=", std::move(expr), std::move(values));
-      } else if (tok.kind == TokenKind::IS_EQUAL ||
-        tok.kind == TokenKind::NOT_EQUAL ||
-        tok.kind == TokenKind::PLUS_EQUAL ||
-        tok.kind == TokenKind::MINUS_EQUAL ||
-        tok.kind == TokenKind::STAR_EQUAL ||
-        tok.kind == TokenKind::SLASH_EQUAL ||
-        tok.kind == TokenKind::POWER_EQUAL ||
-        tok.kind == TokenKind::PERCENT_EQUAL) {
-        string op = tok.value;
-        consume(tok.kind);
-        unique_ptr<Expr> values = parse_expression(0);
-        return make_unique<AssignDecl>(op, std::move(expr), std::move(values));
+        value = parse_expression(0);
       }
 
-      // call<type>: x<type>(...)
-      if (tok.kind == TokenKind::LESS) {
-        consume(TokenKind::LESS);
-        vector<unique_ptr<Type>> typeArgs;
-        while (tok.kind != TokenKind::GREATER &&
-          tok.kind != TokenKind::END_OF_FILE) {
+      return make_unique<LetDecl>(
+        std::move(name),
+        std::move(types),
+        std::move(value),
+        mod,
+        is_public
+      );
+    }
 
-          typeArgs.push_back(parse_type());
+    // parse function declaration
+    if (accept(TokenKind::FUNCTION)) {
+      // get identifier
+      string name = tok.value;
+      consume(TokenKind::IDENTIFIER);
+
+      // Take a generic param if the function supports it
+      vector<unique_ptr<Type>> typeParams;
+      bool hasTypeParams = false;
+      if (accept(TokenKind::LESS)) {
+        hasTypeParams = true;
+        while (tok.kind != TokenKind::GREATER && tok.kind != TokenKind::END_OF_FILE) {
+          typeParams.push_back(parse_type());
           if (!accept(TokenKind::COMMA)) break;
         }
-
         consume(TokenKind::GREATER);
-        expr = make_unique<CallExpr>(
-          std::move(expr),
-          vector<unique_ptr<Expr>>(),
-          true,
-          std::move(typeArgs)
-        );
+      }
 
-        consume(TokenKind::LPARENT);
+      consume(TokenKind::LPARENT); // consume '('
 
-        vector<unique_ptr<Expr>> args;
-        while (tok.kind != TokenKind::RPARENT &&
-          tok.kind != TokenKind::END_OF_FILE) {
-          args.push_back(parse_expression(0));
-          if (!accept(TokenKind::COMMA)) break;
+      // get the function parameters
+      vector<unique_ptr<Stmt>> parameter;
+      while (tok.kind != TokenKind::RPARENT && tok.kind != TokenKind::END_OF_FILE) {
+
+        string name = tok.value;
+        consume(TokenKind::IDENTIFIER);
+        consume(TokenKind::COLON);
+        unique_ptr<Type> types = parse_type();
+
+        parameter.push_back(make_unique<Parameter>(name, std::move(types)));
+
+        if (!accept(TokenKind::COMMA)) break;
+      }
+
+      consume(TokenKind::RPARENT); // consume ')'
+
+      // default return type is void
+      unique_ptr<Type> return_types = make_unique<VoidType>();
+
+      // if there in an arrow, it means the return type of this function is explicitly defined
+      if (accept(TokenKind::ARROW))
+        return_types = parse_type();
+
+      // parsing the function body
+      unique_ptr<Stmt> body = parse_block();
+
+      return make_unique<FunctionDecl>(
+        std::move(name),
+        std::move(return_types),
+        std::move(parameter),
+        std::move(body),
+        is_public,
+        hasTypeParams,
+        std::move(typeParams)
+      );
+    }
+
+    if (accept(TokenKind::IF)) {
+      unique_ptr<Expr> conditions = parse_expression(0);
+
+      unique_ptr<Stmt> body_if = parse_block();
+
+      unique_ptr<Stmt> body_else = make_unique<BlockStmt>(vector<unique_ptr<Stmt>>());
+
+      if (accept(TokenKind::ELSE)) {
+        if (accept(TokenKind::IF)) {
+          body_else = parse_block();
+        } else {
+          body_else = parse_block();
+        }
+      }
+
+      return make_unique<BranchStmt>(std::move(conditions), std::move(body_if), std::move(body_else));
+    }
+
+    if (accept(TokenKind::FOR)) {
+      unique_ptr<Expr> initializer = make_unique<IdentifierExpr>(tok.value);
+      consume(TokenKind::IDENTIFIER);
+
+      consume(TokenKind::IN);
+
+      unique_ptr<Expr> iterator;
+      unique_ptr<Expr> starts = parse_expression(0);
+      if (accept(TokenKind::DOT_DOT)) {
+        unique_ptr<Expr> ends = parse_expression(0);
+        iterator = make_unique<Range>(std::move(starts), std::move(ends));
+      } else iterator = std::move(starts);
+
+      unique_ptr<Stmt> body = parse_block();
+
+      return make_unique<ForLoopStmt>(std::move(initializer), std::move(iterator), std::move(body));
+    }
+
+    // parse assignment or function calling
+    if (tok.kind == TokenKind::IDENTIFIER) {
+      unique_ptr<Expr> expr = make_unique<IdentifierExpr>(tok.value);
+      consume(TokenKind::IDENTIFIER);
+
+      while (tok.kind != TokenKind::END_OF_FILE) {
+
+        // member access: a.b
+        if (tok.kind == TokenKind::DOT) {
+          consume(TokenKind::DOT);
+
+          if (tok.kind != TokenKind::IDENTIFIER) {
+            consume(TokenKind::IDENTIFIER);
+            break;
+          }
+
+          string member = tok.value;
+          consume(TokenKind::IDENTIFIER);
+
+          expr = make_unique<LookupExpr>(
+            std::move(expr),
+            make_unique<IdentifierExpr>(member)
+          );
+
+          continue;
         }
 
-        consume(TokenKind::RPARENT);
+        if (tok.kind == TokenKind::EQUAL) {
+          consume(TokenKind::EQUAL);
+          unique_ptr<Expr> values = parse_expression(0);
+          return make_unique<AssignDecl>("=", std::move(expr), std::move(values));
+        } else if (tok.kind == TokenKind::IS_EQUAL ||
+          tok.kind == TokenKind::NOT_EQUAL ||
+          tok.kind == TokenKind::PLUS_EQUAL ||
+          tok.kind == TokenKind::MINUS_EQUAL ||
+          tok.kind == TokenKind::STAR_EQUAL ||
+          tok.kind == TokenKind::SLASH_EQUAL ||
+          tok.kind == TokenKind::POWER_EQUAL ||
+          tok.kind == TokenKind::PERCENT_EQUAL) {
+          string op = tok.value;
+          consume(tok.kind);
+          unique_ptr<Expr> values = parse_expression(0);
+          return make_unique<AssignDecl>(op, std::move(expr), std::move(values));
+        }
 
-        expr = make_unique<CallExpr>(
-          std::move(expr),
-          std::move(args),
-          true,
-          std::move(typeArgs)
-        );
-        continue;
+        // call<type>: x<type>(...)
+        if (tok.kind == TokenKind::LESS) {
+          consume(TokenKind::LESS);
+          vector<unique_ptr<Type>> typeArgs;
+          while (tok.kind != TokenKind::GREATER &&
+            tok.kind != TokenKind::END_OF_FILE) {
+
+            typeArgs.push_back(parse_type());
+            if (!accept(TokenKind::COMMA)) break;
+          }
+
+          consume(TokenKind::GREATER);
+          expr = make_unique<CallExpr>(
+            std::move(expr),
+            vector<unique_ptr<Expr>>(),
+            true,
+            std::move(typeArgs)
+          );
+
+          consume(TokenKind::LPARENT);
+
+          vector<unique_ptr<Expr>> args;
+          while (tok.kind != TokenKind::RPARENT &&
+            tok.kind != TokenKind::END_OF_FILE) {
+            args.push_back(parse_expression(0));
+            if (!accept(TokenKind::COMMA)) break;
+          }
+
+          consume(TokenKind::RPARENT);
+
+          expr = make_unique<CallExpr>(
+            std::move(expr),
+            std::move(args),
+            true,
+            std::move(typeArgs)
+          );
+          continue;
+        }
       }
 
       // call: x(...)
@@ -403,52 +374,20 @@ namespace frontend {
           false,
           vector<unique_ptr<Type>>()
         );
-
-        continue;
       }
 
-      break;
+      return make_unique<ExprStmt>(std::move(expr));
     }
 
-    return make_unique<ExprStmt>(std::move(expr));
-  }
+    stringstream error;
+    error << "\033[31merrors:\033[0m unexpected token `" << TokenKindToValue(tok.kind) <<"`\n";
+    error << "  at " << tok.files << ":" << tok.line << ":" << tok.column << "\n";
+    error << "  --> " << tok.source << "\n";
+    ErrorHandler::create(error.str());
 
-  unique_ptr<Stmt> Parser::parse_if_stmt() {
-    unique_ptr<Expr> conditions = parse_expression(0);
+    accept(tok.kind);
 
-    unique_ptr<Stmt> body_if = parse_block();
-
-    unique_ptr<Stmt> body_else = make_unique<BlockStmt>(vector<unique_ptr<Stmt>>());
-
-    if (accept(TokenKind::ELSE)) {
-      if (accept(TokenKind::IF)) {
-        body_else = parse_block();
-      } else {
-        body_else = parse_block();
-      }
-    }
-
-    return make_unique<BranchStmt>(std::move(conditions), std::move(body_if), std::move(body_else));
-  }
-
-  unique_ptr<Stmt> Parser::parse_forloop_stmt() {
-    unique_ptr<Expr> initializer = make_unique<IdentifierExpr>(tok.value);
-    consume(TokenKind::IDENTIFIER);
-
-    consume(TokenKind::IN);
-
-    unique_ptr<Expr> iterator;
-    unique_ptr<Expr> starts = parse_expression(0);
-    if (accept(TokenKind::DOT)) {
-      consume(TokenKind::DOT);
-
-      unique_ptr<Expr> ends = parse_expression(0);
-      iterator = make_unique<Range>(std::move(starts), std::move(ends));
-    } else iterator = std::move(starts);
-
-    unique_ptr<Stmt> body = parse_block();
-
-    return make_unique<ForLoopStmt>(std::move(initializer), std::move(iterator), std::move(body));
+    return nullptr;
   }
 
   unique_ptr<Stmt> Parser::parse_block() {
@@ -459,12 +398,15 @@ namespace frontend {
     while (
       tok.kind != TokenKind::RBRACE && 
       tok.kind != TokenKind::END_OF_FILE
-    ) children.push_back(parse_stmt(Visibility::PRIVATE));
+    ) children.push_back(parse_stmt(true));
 
     consume(TokenKind::RBRACE); // consume '}'
 
     return make_unique<BlockStmt>(std::move(children));
   }
+
+
+
 
   int Parser::parse_precedence(TokenKind kind) {
     switch (kind) {
@@ -500,7 +442,6 @@ namespace frontend {
         return 0; // is not binary operand
     }
   }
-
 
   unique_ptr<Expr> Parser::parse_expression(int min_prec) {
     unique_ptr<Expr> lhs = parse_value_literal();
@@ -602,7 +543,7 @@ namespace frontend {
       consume(tok.kind);
       return make_unique<LiteralExpr>(
         LiteralKind::Boolean,
-        current.value
+        std::move(current.value)
       );
     }
 
@@ -699,21 +640,17 @@ namespace frontend {
       }
 
       return expr;
-
     }
 
-    if (tok.kind == TokenKind::NONE) {
-      consume(TokenKind::NONE);
+    if (accept(TokenKind::NONE))
       return make_unique<NoneExpr>();
-    }
 
-    return make_unique<NoneExpr>();
+    return nullptr;
   }
 
   bool Parser::accept(TokenKind kind) {
-    if (tok.kind != kind) {
+    if (tok.kind != kind)
       return false;
-    }
 
     tok = lexer->next();
     return true;

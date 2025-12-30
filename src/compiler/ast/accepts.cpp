@@ -6,7 +6,7 @@
 using namespace frontend;
 
 void FunctionDecl::accept(Visitor& v) { v.visit(*this); }
-void VarDecl::accept(Visitor& v) { v.visit(*this); }
+void LetDecl::accept(Visitor& v) { v.visit(*this); }
 void AssignDecl::accept(Visitor& v) { v.visit(*this); }
 void BranchStmt::accept(Visitor& v) { v.visit(*this); }
 void ExprStmt::accept(Visitor& v) { v.visit(*this); }
