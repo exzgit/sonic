@@ -1,7 +1,3 @@
-# main.sn
-# -----------------
-# sonic main adalah file test untuk kode fungsi main
-
 public fn main() -> i32 {
-  static hello: str = "Hello, World"
+  
 }

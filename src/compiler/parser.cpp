@@ -111,14 +111,10 @@ namespace frontend {
       is_public = true;
     }
     else if (at_local_scope && tok.kind == TokenKind::PUBLIC) {
-      stringstream error;
-      error << "\033[31merrors:\033[0m unexpected `public` statement at local scope.\n";
-      error << "  at " << tok.files << ":" << tok.line << ":" << tok.column << "\n";
-      error << "  --> " << tok.source << "\n";
-      ErrorHandler::create(error.str());
-
+      report_error("unexpected `public` statement at local scope.");
       accept(TokenKind::PUBLIC); // skip 'public' keyword
-      return nullptr;
+      synchronize();
+      return make_unique<BlockStmt>(vector<unique_ptr<Stmt>>());
     }
 
     if (tok.kind == TokenKind::LET ||
@@ -137,13 +133,13 @@ namespace frontend {
       string name = tok.value;
       if (!accept(TokenKind::IDENTIFIER)) {
         stringstream error;
-        error << "\033[31merrors:\033[0m expected variable name, but found `" << TokenKindToValue(tok.kind) <<"`";
-        if (tok.kind == TokenKind::NUMBER) error << " number.\n";
-        else if (tok.kind == TokenKind::IDENTIFIER) error << " identifier.\n";
-        else error << " keyword / punctuation.\n";
-        error << "  at " << tok.files << ":" << tok.line << ":" << tok.column << "\n";
-        error << "  --> " << tok.source << "\n";
-        ErrorHandler::create(error.str());
+        error << "expected variable name, but found `" << TokenKindToValue(tok.kind) <<"";
+        if (tok.kind == TokenKind::NUMBER) error << " number.";
+        else if (tok.kind == TokenKind::IDENTIFIER) error << " identifier.";
+        else error << " keyword / punctuation.";
+        report_error(error.str());
+        synchronize();
+        return make_unique<BlockStmt>(vector<unique_ptr<Stmt>>());
       }
 
       // default type is automatically typed
@@ -274,120 +270,50 @@ namespace frontend {
       unique_ptr<Expr> expr = make_unique<IdentifierExpr>(tok.value);
       consume(TokenKind::IDENTIFIER);
 
-      while (tok.kind != TokenKind::END_OF_FILE) {
+      // postfix parsing (member access, calls, generic calls)
+      expr = parse_postfix_from_expr(std::move(expr));
 
-        // member access: a.b
-        if (tok.kind == TokenKind::DOT) {
-          consume(TokenKind::DOT);
+      // assignment handling: only treat real assignment operators here
+      bool is_call = dynamic_cast<CallExpr*>(expr.get()) != nullptr;
 
-          if (tok.kind != TokenKind::IDENTIFIER) {
-            consume(TokenKind::IDENTIFIER);
-            break;
+      bool is_assignment_op = (
+        tok.kind == TokenKind::EQUAL ||
+        tok.kind == TokenKind::PLUS_EQUAL ||
+        tok.kind == TokenKind::MINUS_EQUAL ||
+        tok.kind == TokenKind::STAR_EQUAL ||
+        tok.kind == TokenKind::SLASH_EQUAL ||
+        tok.kind == TokenKind::POWER_EQUAL ||
+        tok.kind == TokenKind::PERCENT_EQUAL
+      );
+
+      if (is_assignment_op) {
+        if (is_call) {
+          // report error and skip the rest of the current source line
+          report_error("cannot assign to the result of a function call");
+          size_t currentLine = tok.line;
+          // advance until we move to the next line or EOF
+          while (tok.kind != TokenKind::END_OF_FILE && tok.line == currentLine) {
+            tok = lexer->next();
           }
-
-          string member = tok.value;
-          consume(TokenKind::IDENTIFIER);
-
-          expr = make_unique<LookupExpr>(
-            std::move(expr),
-            make_unique<IdentifierExpr>(member)
-          );
-
-          continue;
+          return make_unique<ExprStmt>(std::move(expr));
         }
 
-        if (tok.kind == TokenKind::EQUAL) {
-          consume(TokenKind::EQUAL);
-          unique_ptr<Expr> values = parse_expression(0);
-          return make_unique<AssignDecl>("=", std::move(expr), std::move(values));
-        } else if (tok.kind == TokenKind::IS_EQUAL ||
-          tok.kind == TokenKind::NOT_EQUAL ||
-          tok.kind == TokenKind::PLUS_EQUAL ||
-          tok.kind == TokenKind::MINUS_EQUAL ||
-          tok.kind == TokenKind::STAR_EQUAL ||
-          tok.kind == TokenKind::SLASH_EQUAL ||
-          tok.kind == TokenKind::POWER_EQUAL ||
-          tok.kind == TokenKind::PERCENT_EQUAL) {
-          string op = tok.value;
-          consume(tok.kind);
-          unique_ptr<Expr> values = parse_expression(0);
-          return make_unique<AssignDecl>(op, std::move(expr), std::move(values));
-        }
-
-        // call<type>: x<type>(...)
-        if (tok.kind == TokenKind::LESS) {
-          consume(TokenKind::LESS);
-          vector<unique_ptr<Type>> typeArgs;
-          while (tok.kind != TokenKind::GREATER &&
-            tok.kind != TokenKind::END_OF_FILE) {
-
-            typeArgs.push_back(parse_type());
-            if (!accept(TokenKind::COMMA)) break;
-          }
-
-          consume(TokenKind::GREATER);
-          expr = make_unique<CallExpr>(
-            std::move(expr),
-            vector<unique_ptr<Expr>>(),
-            true,
-            std::move(typeArgs)
-          );
-
-          consume(TokenKind::LPARENT);
-
-          vector<unique_ptr<Expr>> args;
-          while (tok.kind != TokenKind::RPARENT &&
-            tok.kind != TokenKind::END_OF_FILE) {
-            args.push_back(parse_expression(0));
-            if (!accept(TokenKind::COMMA)) break;
-          }
-
-          consume(TokenKind::RPARENT);
-
-          expr = make_unique<CallExpr>(
-            std::move(expr),
-            std::move(args),
-            true,
-            std::move(typeArgs)
-          );
-          continue;
-        }
+        string op = tok.value;
+        consume(tok.kind);
+        unique_ptr<Expr> values = parse_expression(0);
+        return make_unique<AssignDecl>(op, std::move(expr), std::move(values));
       }
 
-      // call: x(...)
-      if (tok.kind == TokenKind::LPARENT) {
-        consume(TokenKind::LPARENT);
-
-        vector<unique_ptr<Expr>> args;
-        while (tok.kind != TokenKind::RPARENT &&
-          tok.kind != TokenKind::END_OF_FILE) {
-
-          args.push_back(parse_expression(0));
-          if (!accept(TokenKind::COMMA)) break;
-        }
-
-        consume(TokenKind::RPARENT);
-
-        expr = make_unique<CallExpr>(
-          std::move(expr),
-          std::move(args),
-          false,
-          vector<unique_ptr<Type>>()
-        );
-      }
-
+      // otherwise it's an expression statement
       return make_unique<ExprStmt>(std::move(expr));
     }
 
-    stringstream error;
-    error << "\033[31merrors:\033[0m unexpected token `" << TokenKindToValue(tok.kind) <<"`\n";
-    error << "  at " << tok.files << ":" << tok.line << ":" << tok.column << "\n";
-    error << "  --> " << tok.source << "\n";
-    ErrorHandler::create(error.str());
+    report_error("unexpected token: `" + TokenKindToValue(tok.kind) + "`");
+    synchronize();
 
     accept(tok.kind);
 
-    return nullptr;
+    return make_unique<BlockStmt>(vector<unique_ptr<Stmt>>());
   }
 
   unique_ptr<Stmt> Parser::parse_block() {
@@ -404,9 +330,6 @@ namespace frontend {
 
     return make_unique<BlockStmt>(std::move(children));
   }
-
-
-
 
   int Parser::parse_precedence(TokenKind kind) {
     switch (kind) {
@@ -445,6 +368,12 @@ namespace frontend {
 
   unique_ptr<Expr> Parser::parse_expression(int min_prec) {
     unique_ptr<Expr> lhs = parse_value_literal();
+
+    if (!lhs) {
+      report_error("expected expression");
+      synchronize();
+      return make_unique<NoneExpr>();
+    }
 
     while (true) {
       if (tok.kind == TokenKind::END_OF_FILE)
@@ -550,102 +479,14 @@ namespace frontend {
     if (tok.kind == TokenKind::IDENTIFIER) {
       unique_ptr<Expr> expr = make_unique<IdentifierExpr>(tok.value);
       consume(TokenKind::IDENTIFIER);
-
-      while (tok.kind != TokenKind::END_OF_FILE) {
-
-        // member access: a.b
-        if (tok.kind == TokenKind::DOT) {
-          consume(TokenKind::DOT);
-
-          if (tok.kind != TokenKind::IDENTIFIER) {
-            consume(TokenKind::IDENTIFIER);
-            break;
-          }
-
-          string member = tok.value;
-          consume(TokenKind::IDENTIFIER);
-
-          expr = make_unique<LookupExpr>(
-            std::move(expr),
-            make_unique<IdentifierExpr>(member)
-          );
-          continue;
-        }
-
-        // call<type>: x<type>(...)
-        if (tok.kind == TokenKind::LESS) {
-          consume(TokenKind::LESS);
-          vector<unique_ptr<Type>> typeArgs;
-          while (tok.kind != TokenKind::GREATER &&
-                tok.kind != TokenKind::END_OF_FILE) {
-
-            typeArgs.push_back(parse_type());
-            if (!accept(TokenKind::COMMA)) break;
-          }
-          consume(TokenKind::GREATER);
-          expr = make_unique<CallExpr>(
-            std::move(expr),
-            vector<unique_ptr<Expr>>(),
-            true,
-            std::move(typeArgs)
-          );;
-
-          consume(TokenKind::LPARENT);
-
-          vector<unique_ptr<Expr>> args;
-          while (tok.kind != TokenKind::RPARENT &&
-                tok.kind != TokenKind::END_OF_FILE) {
-
-            args.push_back(parse_expression(0));
-            if (!accept(TokenKind::COMMA)) break;
-          }
-
-          consume(TokenKind::RPARENT);
-
-          expr = make_unique<CallExpr>(
-            std::move(expr),
-            std::move(args),
-            true,
-            std::move(typeArgs)
-          );
-
-          continue;
-        }
-
-        // call: x(...)
-        if (tok.kind == TokenKind::LPARENT) {
-          consume(TokenKind::LPARENT);
-
-          vector<unique_ptr<Expr>> args;
-          while (tok.kind != TokenKind::RPARENT &&
-                tok.kind != TokenKind::END_OF_FILE) {
-
-            args.push_back(parse_expression(0));
-            if (!accept(TokenKind::COMMA)) break;
-          }
-
-          consume(TokenKind::RPARENT);
-
-          expr = make_unique<CallExpr>(
-            std::move(expr),
-            std::move(args),
-            false,
-            vector<unique_ptr<Type>>()
-          );
-
-          continue;
-        }
-
-        break;
-      }
-
-      return expr;
+      return parse_postfix_from_expr(std::move(expr));
     }
 
     if (accept(TokenKind::NONE))
       return make_unique<NoneExpr>();
 
-    return nullptr;
+    // If no literal/primary found, return a NoneExpr so callers don't get nullptr.
+    return make_unique<NoneExpr>();
   }
 
   bool Parser::accept(TokenKind kind) {
@@ -656,13 +497,122 @@ namespace frontend {
     return true;
   }
 
+  unique_ptr<Expr> Parser::parse_postfix_from_expr(unique_ptr<Expr> expr) {
+    while (tok.kind != TokenKind::END_OF_FILE) {
+      // member access: a.b
+      if (tok.kind == TokenKind::DOT) {
+        consume(TokenKind::DOT);
+
+        if (tok.kind != TokenKind::IDENTIFIER) {
+          report_error("expected identifier after '.'");
+          synchronize();
+          break;
+        }
+
+        string member = tok.value;
+        consume(TokenKind::IDENTIFIER);
+
+        expr = make_unique<LookupExpr>(
+          std::move(expr),
+          make_unique<IdentifierExpr>(member)
+        );
+
+        continue;
+      }
+
+      // call<type>: x<type>(...)
+      if (tok.kind == TokenKind::LESS) {
+        consume(TokenKind::LESS);
+        vector<unique_ptr<Type>> typeArgs;
+        while (tok.kind != TokenKind::GREATER && tok.kind != TokenKind::END_OF_FILE) {
+          typeArgs.push_back(parse_type());
+          if (!accept(TokenKind::COMMA)) break;
+        }
+
+        consume(TokenKind::GREATER);
+
+        consume(TokenKind::LPARENT);
+
+        vector<unique_ptr<Expr>> args;
+        while (tok.kind != TokenKind::RPARENT && tok.kind != TokenKind::END_OF_FILE) {
+          args.push_back(parse_expression(0));
+          if (!accept(TokenKind::COMMA)) break;
+        }
+
+        consume(TokenKind::RPARENT);
+
+        expr = make_unique<CallExpr>(
+          std::move(expr),
+          std::move(args),
+          true,
+          std::move(typeArgs)
+        );
+
+        continue;
+      }
+
+      // call: x(...)
+      if (tok.kind == TokenKind::LPARENT) {
+        consume(TokenKind::LPARENT);
+
+        vector<unique_ptr<Expr>> args;
+        while (tok.kind != TokenKind::RPARENT && tok.kind != TokenKind::END_OF_FILE) {
+          args.push_back(parse_expression(0));
+          if (!accept(TokenKind::COMMA)) break;
+        }
+
+        consume(TokenKind::RPARENT);
+
+        expr = make_unique<CallExpr>(
+          std::move(expr),
+          std::move(args),
+          false,
+          vector<unique_ptr<Type>>()
+        );
+
+        continue;
+      }
+
+      break;
+    }
+
+    return expr;
+  }
+
+  void Parser::report_error(const std::string& message) {
+    stringstream error;
+    error << "\033[31merrors:\033[0m " << message << "\n";
+    error << "  at " << tok.files << ":" << tok.line << ":" << tok.column << "\n";
+    error << "  --> " << tok.source << "\n";
+    ErrorHandler::create(error.str());
+  }
+
+  void Parser::synchronize() {
+    // advance until we find a good recovery point (next source line or block end)
+    size_t startLine = tok.line;
+
+    while (tok.kind != TokenKind::END_OF_FILE && tok.kind != TokenKind::RBRACE) {
+      if (tok.line > startLine) {
+        // moved to next source line: good recovery point
+        break;
+      }
+
+      if (tok.kind == TokenKind::SEMICOLON) {
+        tok = lexer->next();
+        break;
+      }
+
+      tok = lexer->next();
+    }
+  }
+
   bool Parser::consume(TokenKind kind) {
     if (tok.kind != kind) {
       stringstream error;
-      error << "\033[31merrors:\033[0m expected `" << TokenKindToValue(kind) <<"`, but got `" << TokenKindToValue(tok.kind) << "`\n";
-      error << "  at " << tok.files << ":" << tok.line << ":" << tok.column << "\n";
-      error << "  --> " << tok.source << "\n";
-      ErrorHandler::create(error.str());
+      error << "expected `" << TokenKindToValue(kind) <<"`, but got `" << TokenKindToValue(tok.kind) << "`";
+      report_error(error.str());
+      // try to resynchronize so parser can continue
+      synchronize();
       return false;
     }
 

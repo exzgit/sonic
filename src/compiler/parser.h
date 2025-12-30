@@ -34,6 +34,10 @@ namespace frontend {
       unique_ptr<Type> parse_type();
       unique_ptr<Expr> parse_expression(int min_prec);
       unique_ptr<Expr> parse_value_literal();
+      unique_ptr<Expr> parse_postfix_from_expr(unique_ptr<Expr> expr);
+
+      void report_error(const std::string& message);
+      void synchronize();
 
       int parse_precedence(TokenKind kind);
 
