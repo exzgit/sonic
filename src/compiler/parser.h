@@ -24,19 +24,17 @@ namespace frontend {
       Parser(string filepath, Lexer* lexer);
       ~Parser() = default;
 
-      vector<unique_ptr<Stmt>> parse();
+      unique_ptr<Stmt> parse();
 
     private:
 
-      vector<unique_ptr<Stmt>> parse_body(TokenKind kind);
+      unique_ptr<Stmt> parse_block();
+
+      unique_ptr<Stmt> parse_stmt();
 
       unique_ptr<Type> parse_type();
-      unique_ptr<Stmt> parse_assignment();
-      unique_ptr<Stmt> parse_letdecl();
-      unique_ptr<Stmt> parse_function_stmt(bool is_public);
-      unique_ptr<Expr> parse_expression();
+      unique_ptr<Expr> parse_expression(int min_prec);
       unique_ptr<Expr> parse_value_literal();
-      unique_ptr<Expr> parse_binary_expr(int min_prec);
 
       int parse_precedence(TokenKind kind);
 
@@ -44,9 +42,9 @@ namespace frontend {
       bool consume(TokenKind kind);
 
     private:
-      Lexer* lexer;
       string files;
 
+      Lexer* lexer;
       Token tok;
   };
 };

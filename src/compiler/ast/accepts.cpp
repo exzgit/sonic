@@ -6,11 +6,13 @@
 using namespace frontend;
 
 void FunctionDecl::accept(Visitor& v) { v.visit(*this); }
-void LeteralDecl::accept(Visitor& v) { v.visit(*this); }
+void VarDecl::accept(Visitor& v) { v.visit(*this); }
 void AssignDecl::accept(Visitor& v) { v.visit(*this); }
 void BranchStmt::accept(Visitor& v) { v.visit(*this); }
 void ExprStmt::accept(Visitor& v) { v.visit(*this); }
 void Parameter::accept(Visitor& v) { v.visit(*this); }
+void ForLoopStmt::accept(Visitor& v) { v.visit(*this); }
+void BlockStmt::accept(Visitor& v) { v.visit(*this); }
 
 // Expr accept implementations
 void LiteralExpr::accept(Visitor& v) { v.visit(*this); }
@@ -24,6 +26,7 @@ void BinOp::accept(Visitor& v) { v.visit(*this); }
 void UnOp::accept(Visitor& v) { v.visit(*this); }
 void AddressOf::accept(Visitor& v) { v.visit(*this); }
 void GetValuePtr::accept(Visitor& v) { v.visit(*this); }
+void Range::accept(Visitor& v) { v.visit(*this); }
 
 // Type accept implementations
 void AutoType::accept(Visitor& v) { v.visit(*this); }

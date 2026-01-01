@@ -307,6 +307,8 @@ namespace frontend {
       kind = TokenKind::FUNCTION;
     else if (value == "return")
       kind = TokenKind::RETURN;
+    else if (value == "public")
+      kind = TokenKind::PUBLIC;
     else if (value == "if")
       kind = TokenKind::IF;
     else if (value == "else")
@@ -377,6 +379,12 @@ namespace frontend {
       kind = TokenKind::AUTO;
     else if (value == "any")
       kind = TokenKind::ANY;
+    else if (value == "in")
+      kind = TokenKind::IN;
+    else if (value == "static")
+      kind = TokenKind::STATIC;
+    else if (value == "const")
+      kind = TokenKind::CONST;
 
     return Token {
       kind,
@@ -411,7 +419,7 @@ namespace frontend {
     }
     else if (c2 == "+=") {
       kind = TokenKind::PLUS_EQUAL;
-      advancehttps://www.google.com/search?q=apa+itu+AI+OCR&sca_esv=49d481c5a8cd6c1b&sxsrf=AE3TifODvupBdMZ1Ltb6sbpb9VXaetasaw%3A1766588140226&ei=7P5LaYm9Daey4-EPsZrWmAY&ved=0ahUKEwiJ47_UvdaRAxUn2TgGHTGNFWMQ4dUDCBE&uact=5&oq=apa+itu+AI+OCR&gs_lp=Egxnd3Mtd2l6LXNlcnAiDmFwYSBpdHUgQUkgT0NSMgQQABgeMggQABiABBiiBDIIEAAYgAQYogRIpBNQjgxYixJwAXgBkAEAmAFeoAH8BKoBATi4AQPIAQD4AQGYAgigAvEEwgIKEAAYsAMY1gQYR8ICDRAAGIAEGLADGEMYigXCAgcQIxiwAhgnwgIGEAAYBxgewgIHEAAYgAQYDcICBhAAGA0YHsICCRAAGIAEGAoYDZgDAIgGAZAGCpIHATigB9cusgcBN7gH4wTCBwUyLTMuNcgHPYAIAA&sclient=gws-wiz-serp();
+      advance();
     }
     else if (c2 == "-=") {
       kind = TokenKind::MINUS_EQUAL;

@@ -21,6 +21,9 @@ class ASTDebugger : public Visitor {
     }
 
   public:
+    ASTDebugger() = default;
+    ~ASTDebugger() = default;
+
     void visit(LiteralExpr& expr) {
       cout << indent() << "- LiteralExpr\n";
       idx++;
@@ -147,6 +150,20 @@ class ASTDebugger : public Visitor {
       idx--;
     }
 
+    virtual void visit(Range& expr) {
+      cout << indent() << "- Range\n";
+      idx++;
+        cout << indent() << "start:\n";
+        idx++;
+          expr.start->accept(*this);
+        idx--;
+        cout << indent() << "end:\n";
+        idx++;
+          expr.end->accept(*this);
+        idx--;
+      idx--;
+    }
+
     // visitor for type
     virtual void visit(AutoType& type) {
       cout << indent() << "- Type(Auto)\n";
@@ -185,9 +202,9 @@ class ASTDebugger : public Visitor {
       cout << indent() << "- Type(QualifiedType)\n";
       idx++;
         cout << indent() << "segments: ";
-        for (int i = 0; i < type.segments.size(); i++) {
+        for (int i = 0; i < (int)type.segments.size(); i++) {
           cout << type.segments[i];
-          if (i < type.segments.size() - 1) cout << "::";
+          if (i < (int)type.segments.size() - 1) cout << "::";
         }
         cout << "\n";
       idx--;
@@ -220,16 +237,15 @@ class ASTDebugger : public Visitor {
         cout << indent() << "params[" << stmt.params.size() << "]\n";
         idx++;
           for (auto& arg : stmt.params) arg->accept(*this);
-        idx--;
-        cout << indent() << "body[" << stmt.body.size() << "]\n";
-        idx++;
-          for (auto& child : stmt.body) child->accept(*this);
+
+          // debug function body
+          stmt.body->accept(*this);
         idx--;
         cout << indent() << "return_type:\n";
         idx++;
           stmt.return_types->accept(*this);
         idx--;
-        cout << indent() << "isPublic: " << (stmt.isPublic ? "yes" : "no") << "\n";
+        cout << indent() << "Visibility: " << visibilityToString(stmt.visibility) << "\n";
         if (stmt.hasTypeParams) {
           cout << indent() << "typeParams[" << stmt.typeParams.size() << "]\n";
           idx++;
@@ -249,8 +265,8 @@ class ASTDebugger : public Visitor {
       idx--;
     }
 
-    virtual void visit(LeteralDecl& stmt) {
-      cout << indent() << "- LeteralDecl(" << stmt.name << ")\n";
+    virtual void visit(VarDecl& stmt) {
+      cout << indent() << "- VarDecl(" << stmt.name << ")\n";
       idx++;
         cout << indent() << "types:\n";
         idx++;
@@ -260,6 +276,8 @@ class ASTDebugger : public Visitor {
         idx++;
           stmt.values->accept(*this);
         idx--;
+        cout << indent() << "mutability: " << mutabilityToString(stmt.mutability) << "\n";
+        cout << indent() << "visibility: " << visibilityToString(stmt.visibility) << "\n";
       idx--;
     }
 
@@ -286,14 +304,21 @@ class ASTDebugger : public Visitor {
         idx--;
         cout << indent() << "body_if:\n";
         idx++;
-          for (auto& child : stmt.body_if) child->accept(*this);
+          stmt.body_if->accept(*this);
+          stmt.body_else->accept(*this);
         idx--;
-        if (stmt.body_else.size() > 0) {
-          cout << indent() << "body_else:\n";
-          idx++;
-            for (auto& child : stmt.body_else) child->accept(*this);
-          idx--;
-        }
+      idx--;
+    }
+
+    virtual void visit(ForLoopStmt& stmt) {
+      
+    }
+
+    virtual void visit(BlockStmt& stmt) {
+      cout << indent() << "Block[" << stmt.children.size() << "]\n";
+      idx++;
+        for (auto& child : stmt.children)
+          child->accept(*this);
       idx--;
     }
 

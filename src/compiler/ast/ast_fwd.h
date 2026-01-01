@@ -2,16 +2,20 @@
 
 namespace frontend {
 
+
+
 	struct Stmt;
 	struct Expr;
 	struct Type;
 
 	struct FunctionDecl;
-	struct LeteralDecl;
+	struct VarDecl;
 	struct AssignDecl;
 	struct BranchStmt;
   struct ExprStmt;
   struct Parameter;
+  struct ForLoopStmt;
+  struct BlockStmt;
 
   struct LiteralExpr;
 	struct NoneExpr;
@@ -20,6 +24,7 @@ namespace frontend {
 	struct CallExpr;
 	struct VecExpr;
 	struct MapExpr;
+	struct Range;
 	struct BinOp;
 	struct UnOp;
 	struct AddressOf;
