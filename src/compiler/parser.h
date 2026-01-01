@@ -29,12 +29,15 @@ namespace frontend {
     private:
 
       unique_ptr<Stmt> parse_block();
-
-      unique_ptr<Stmt> parse_stmt();
+      unique_ptr<Stmt> parse_stmt(bool at_local_scope);
 
       unique_ptr<Type> parse_type();
       unique_ptr<Expr> parse_expression(int min_prec);
       unique_ptr<Expr> parse_value_literal();
+      unique_ptr<Expr> parse_postfix_from_expr(unique_ptr<Expr> expr);
+
+      void report_error(const std::string& message);
+      void synchronize();
 
       int parse_precedence(TokenKind kind);
 

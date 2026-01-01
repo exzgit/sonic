@@ -16,33 +16,20 @@ struct Type;
 
 class Visitor;
 
-enum Mutability {
+enum Modifiers {
   STATIC,
   CONST,
   LETERAL
 };
 
-enum Visibility {
-  PUBLIC,
-  PRIVATE
-};
-
-inline string mutabilityToString(Mutability& mut) {
+inline string modifiersToString(Modifiers& mut) {
   switch (mut) {
-    case Mutability::STATIC: return "static";
-    case Mutability::CONST: return "const";
-    case Mutability::LETERAL: return "leteral";
+    case Modifiers::STATIC: return "static";
+    case Modifiers::CONST: return "const";
+    case Modifiers::LETERAL: return "leteral";
     default: return "__";
   }
-}
-
-inline string visibilityToString(Visibility v) {
-  switch (v) {
-    case Visibility::PRIVATE: return "private";
-    case Visibility::PUBLIC: return "public";
-    default: return "__";
-  }
-}
+};
 
 struct Stmt {
   virtual ~Stmt() = default;
@@ -55,37 +42,37 @@ struct FunctionDecl : Stmt {
   vector<unique_ptr<Stmt>> params;
   unique_ptr<Stmt> body;
 
-  Visibility visibility;
+  bool is_public;
 
   bool hasTypeParams;
   vector<unique_ptr<Type>> typeParams;
 
   FunctionDecl(
-      string name, 
-      unique_ptr<Type> return_types, 
+      string name,
+      unique_ptr<Type> return_types,
       vector<unique_ptr<Stmt>> params,
       unique_ptr<Stmt> body,
-      Visibility vis,
+      bool is_public,
       bool hasTypeParams,
       vector<unique_ptr<Type>> typeParams)
     : name(std::move(name)), return_types(std::move(return_types)),
     params(std::move(params)), body(std::move(body)),
-    visibility(vis), hasTypeParams(hasTypeParams),
+    is_public(is_public), hasTypeParams(hasTypeParams),
     typeParams(std::move(typeParams)) {}
 
   void accept(Visitor& v) override;
 };
 
-struct VarDecl : Stmt {
+struct LetDecl : Stmt {
   string name;
   unique_ptr<Type> types;
   unique_ptr<Expr> values;
 
-  Mutability mutability;
-  Visibility visibility;
+  Modifiers modifiers;
+  bool is_public;
 
-  VarDecl(string name, unique_ptr<Type> types, unique_ptr<Expr> values, Mutability mut, Visibility vis)
-  : name(std::move(name)), types(std::move(types)), values(std::move(values)), mutability(mut), visibility(vis) {}
+  LetDecl(string name, unique_ptr<Type> types, unique_ptr<Expr> values, Modifiers mod, bool is_public)
+  : name(std::move(name)), types(std::move(types)), values(std::move(values)), modifiers(mod), is_public(is_public) {}
 
   void accept(Visitor& v) override;
 };

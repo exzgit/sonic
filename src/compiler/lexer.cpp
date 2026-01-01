@@ -211,8 +211,25 @@ namespace frontend {
       }
     }
     else if (peek() == '.') {
-      value += peek();
       advance();
+      if (peek() == '.')
+      {
+        column--;
+        index--;
+
+        return Token {
+          kind,
+          value,
+          cline,
+          column,
+          start,
+          column,
+          files,
+          lines[cline - 1]
+        };
+      }
+      else value += '.';
+
       if (std::isdigit(peek())) {
 
         while(std::isdigit(peek())) {
@@ -463,6 +480,10 @@ namespace frontend {
     }
     else if (c2 == "::") {
       kind = TokenKind::DOUBLE_COLON;
+      advance();
+    }
+    else if (c2 == "..") {
+      kind = TokenKind::DOT_DOT;
       advance();
     }
     else {

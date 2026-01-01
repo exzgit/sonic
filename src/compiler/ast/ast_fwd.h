@@ -9,7 +9,7 @@ namespace frontend {
 	struct Type;
 
 	struct FunctionDecl;
-	struct VarDecl;
+	struct LetDecl;
 	struct AssignDecl;
 	struct BranchStmt;
   struct ExprStmt;

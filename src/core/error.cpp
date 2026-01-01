@@ -16,7 +16,7 @@ void ErrorHandler::debug() {
   }
 
   for (string error : ErrorHandler::error_stack) {
-    cerr << error;
+    cerr << error << "\n";
   }
 
   std::exit(1);

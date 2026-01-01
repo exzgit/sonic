@@ -104,7 +104,8 @@ enum TokenKind {
   OR,
   ROOT,
   SUPER,
-  ARROW
+  ARROW,
+  DOT_DOT
 };
 
 inline std::string TokenKindToValue(TokenKind kind) {
@@ -215,6 +216,7 @@ inline std::string TokenKindToValue(TokenKind kind) {
     case SUPER:         return "super";
     case ARROW:         return "->";
     case DOUBLE_COLON:  return "::";
+    case DOT_DOT:  return "..";
   }
 
   return "unknown";
