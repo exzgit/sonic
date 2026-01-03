@@ -6,6 +6,7 @@
 #include "core/error.h"
 #include "compiler/ast/visitor.h"
 #include "compiler/ast/debug.h"
+#include "compiler/semantic.h"
 
 using namespace std;
 using namespace errors;
@@ -31,10 +32,13 @@ int main(int argc, char** argv) {
       Parser parser = Parser(filepath, &lexer);
       auto nodes = parser.parse();
 
-      ASTDebugger debug = ASTDebugger();
       ErrorHandler::debug();
 
+      ASTDebugger debug = ASTDebugger();
       nodes->accept(debug);
+
+      SemanticAnalyzer semantic;
+      nodes->accept(semantic);
     }
   } else
     cout << "usage: sonic run <filepath>\n";

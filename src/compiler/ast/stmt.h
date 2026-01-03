@@ -135,4 +135,12 @@ struct BlockStmt : Stmt {
   void accept(Visitor& v) override;
 };
 
+struct ReturnStmt : Stmt {
+  unique_ptr<Expr> values;
+
+  ReturnStmt(unique_ptr<Expr> values) : values(std::move(values)) {}
+
+  void accept(Visitor& v) override;
+};
+
 };

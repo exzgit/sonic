@@ -22,35 +22,40 @@ enum class PrimitiveType : uint8_t {
   Bool, String, Char
 };
 
-// A compact, extensible representation of a type in the language.
-struct Type {
+// A compact, extensible representation of a type for the symbol table.
+struct TypeInfo {
   enum class Kind : uint8_t { Primitive, Named, Generic, Function, Unknown } kind = Kind::Unknown;
 
   // payload depending on kind
   std::optional<PrimitiveType> primitive;
   std::string name; // for named types (structs, enums, aliases)
-  std::vector<Type> generics; // generic type parameters
+  std::vector<TypeInfo> generics; // generic type parameters
 
   // for function types
-  std::vector<Type> params; // parameter types
-  std::shared_ptr<Type> return_type; // use pointer to avoid recursive containment
+  std::vector<TypeInfo> params; // parameter types
+  std::shared_ptr<TypeInfo> return_type; // use pointer to avoid recursive containment
 
   bool is_reference = false;
+  bool is_any = false; // true when the type is `Any`
 
   // utility constructors
-  static Type make_primitive(PrimitiveType p) {
-    Type t; t.kind = Kind::Primitive; t.primitive = p; return t;
+  static TypeInfo make_primitive(PrimitiveType p) {
+    TypeInfo t; t.kind = Kind::Primitive; t.primitive = p; return t;
   }
 
-  static Type make_named(std::string n) {
-    Type t;
+  static TypeInfo make_named(std::string n) {
+    TypeInfo t;
     t.kind = Kind::Named;
     t.name = std::move(n);
     return t;
   }
 
-  static Type make_function(std::vector<Type> p, Type r) {
-    Type t; t.kind = Kind::Function; t.params = std::move(p); t.return_type = std::make_shared<Type>(std::move(r)); return t;
+  static TypeInfo make_function(std::vector<TypeInfo> p, TypeInfo r) {
+    TypeInfo t; t.kind = Kind::Function; t.params = std::move(p); t.return_type = std::make_shared<TypeInfo>(std::move(r)); return t;
+  }
+
+  static TypeInfo make_any() {
+    TypeInfo t; t.kind = Kind::Unknown; t.is_any = true; return t;
   }
 };
 
@@ -61,7 +66,7 @@ struct SymbolEntry {
   Mutability mutability = Mutability::Mutable;
   Visibility visibility = Visibility::Private;
 
-  Type type; // type of the symbol (for variables) or function signature
+  TypeInfo type; // type of the symbol (for variables) or function signature
 
   // index of the scope where this symbol was declared (0 = global)
   size_t scope_index = 0;

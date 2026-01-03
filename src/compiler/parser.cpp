@@ -152,9 +152,10 @@ namespace frontend {
         if (accept(TokenKind::COLON))
         {
           types = parse_type();
-          if (accept(TokenKind::EQUAL)) {
-            value = parse_expression(0);
-          }
+        }
+
+        if (accept(TokenKind::EQUAL)) {
+          value = parse_expression(0);
         }
       } else {
         consume(TokenKind::COLON);

@@ -48,6 +48,7 @@ class Visitor {
   virtual void visit(ExprStmt& stmt)          = 0;
   virtual void visit(ForLoopStmt& stmt)       = 0;
   virtual void visit(BlockStmt& stmt)         = 0;
+  virtual void visit(ReturnStmt& stmt)         = 0;
 };
 
 };

@@ -12,12 +12,13 @@ namespace frontend {
 	struct LetDecl;
 	struct AssignDecl;
 	struct BranchStmt;
-  struct ExprStmt;
-  struct Parameter;
-  struct ForLoopStmt;
-  struct BlockStmt;
+	struct ExprStmt;
+	struct Parameter;
+	struct ForLoopStmt;
+	struct BlockStmt;
+	struct ReturnStmt;
 
-  struct LiteralExpr;
+  	struct LiteralExpr;
 	struct NoneExpr;
 	struct IdentifierExpr;
 	struct LookupExpr;

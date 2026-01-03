@@ -339,6 +339,16 @@ class ASTDebugger : public Visitor {
     virtual void visit(ExprStmt& stmt) {
       stmt.expr->accept(*this);
     }
+
+    virtual void visit(ReturnStmt& stmt) {
+      cout << indent() << "- ReturnStmt\n";
+      idx++;
+        cout << indent() << "values:\n";
+        idx++;
+          stmt.values->accept(*this);
+        idx--;
+      idx--;
+    }
 };
 
 };

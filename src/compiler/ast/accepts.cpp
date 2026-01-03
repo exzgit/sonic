@@ -13,6 +13,7 @@ void ExprStmt::accept(Visitor& v) { v.visit(*this); }
 void Parameter::accept(Visitor& v) { v.visit(*this); }
 void ForLoopStmt::accept(Visitor& v) { v.visit(*this); }
 void BlockStmt::accept(Visitor& v) { v.visit(*this); }
+void ReturnStmt::accept(Visitor& v) { v.visit(*this); }
 
 // Expr accept implementations
 void LiteralExpr::accept(Visitor& v) { v.visit(*this); }
