@@ -309,6 +309,11 @@ namespace frontend {
       return make_unique<ExprStmt>(std::move(expr));
     }
 
+    if (accept(TokenKind::RETURN)) {
+        auto value = parse_expression(0);
+        return make_unique<ReturnStmt>(std::move(value));
+    }
+
     report_error("unexpected token: `" + TokenKindToValue(tok.kind) + "`");
     synchronize();
 
@@ -323,7 +328,7 @@ namespace frontend {
     consume(TokenKind::LBRACE); // consume '{'
 
     while (
-      tok.kind != TokenKind::RBRACE && 
+      tok.kind != TokenKind::RBRACE &&
       tok.kind != TokenKind::END_OF_FILE
     ) children.push_back(parse_stmt(true));
 

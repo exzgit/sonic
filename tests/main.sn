@@ -1,4 +1,6 @@
 public fn main() -> i32 {
   let a = 10
   let b = a
+
+  return 10
 }

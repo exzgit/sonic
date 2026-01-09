@@ -18,7 +18,7 @@ namespace backend {
         Codegen() = default;
         ~Codegen() = default;
     private:
-        string code_generated;        
+        string code_generated;
         // visitor for expression node
         virtual void visit(LiteralExpr& expr) {
             if (expr.kinds == LiteralKind::String) {
