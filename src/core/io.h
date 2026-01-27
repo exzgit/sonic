@@ -1,0 +1,21 @@
+#pragma once
+
+#include <string>
+
+using namespace std;
+
+namespace sonic::io {
+
+  string read_file(const string& path);
+  void write_file(const string& path, const string& content);
+  void append_file(const string& path, const string& content);
+  void delete_file(const string& path);
+  void copy_file(const string& src_path, const string& dest_path);
+  bool is_file(const string& path);
+  bool is_directory(const string& path);
+  bool is_exists(const string& path);
+
+  std::string getPathWithoutExtension(const std::string& path);
+  std::string getFileNameWithoutExt(const std::string& path);
+  std::string getPathWithoutFile(const std::string& path);
+}

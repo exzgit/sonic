@@ -1,0 +1,14 @@
+// APP CONFIGURATION
+@name ./examples
+@version 1.0.0
+@author ...
+@description ...
+@license MIT License
+
+// TARGET PLATFORM
+@target x86_64-unknown-linux-gnu
+
+// DEPENDENCIES
+@use stdlib@latest
+@use stdint@1.2.0
+@use collections@^4.2.0
