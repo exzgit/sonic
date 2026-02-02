@@ -114,6 +114,7 @@ namespace sonic::frontend {
     FUNCTION,
     STRUCT,
     ENUM,
+    UNRESOLVED,
     UNKNOWN,
   };
 
@@ -136,6 +137,7 @@ namespace sonic::frontend {
       case sonic::frontend::TypeKind::ENUM: return "enum";
       case sonic::frontend::TypeKind::SCOPE_ACCESS: return "scope_access";
       case sonic::frontend::TypeKind::FUNCTION: return "function";
+      case sonic::frontend::TypeKind::UNRESOLVED: return "unresolved";
       default: return "unknown";
     }
   }
@@ -287,72 +289,6 @@ namespace sonic::frontend {
       return e;
     }
 
-    bool canLiteralConvertTo(const SonicType* target) {
-      if (target->isInteger()) {
-        return fitsIntegerLiteral(target->bitWidth());
-      }
-
-      if (target->isFloat()) {
-        return true;
-      }
-
-      return false;
-    }
-
-    bool fitsIntegerLiteral(int bitWidth) {
-      long long val = std::stoll(value);
-
-      long long min = -(1LL << (bitWidth - 1));
-      long long max =  (1LL << (bitWidth - 1)) - 1;
-
-      return val >= min && val <= max;
-    }
-
-    // return cleaned literal text (underscores removed). empty string if not a literal.
-    std::string literal_text() const {
-      if (!(kind == ExprKind::UNTYPED_LITERAL || kind == ExprKind::CHAR || kind == ExprKind::STRING || kind == ExprKind::BOOL)) {
-        return std::string();
-      }
-      std::string s = name;
-      s.erase(std::remove(s.begin(), s.end(), '_'), s.end());
-      return s;
-    }
-
-    // check whether the decimal integer literal fits in a signed integer with `bits` width.
-    // returns false for non-decimal literals or on overflow.
-    bool fits_signed_integer_bits(unsigned bits) const {
-      std::string s = literal_text();
-      if (s.empty() || bits == 0) return false;
-
-      bool negative = false;
-      std::size_t pos = 0;
-      if (s[0] == '+' || s[0] == '-') {
-        negative = (s[0] == '-');
-        pos = 1;
-      }
-      // only decimal digits supported here
-      if (pos >= s.size()) return false;
-
-      // compute absolute numeric value using __int128 to avoid intermediate overflow
-      __int128 value = 0;
-      for (; pos < s.size(); ++pos) {
-        char c = s[pos];
-        if (!std::isdigit((unsigned char)c)) return false;
-        value = value * 10 + (c - '0');
-        // early range checks using signed limits
-        if (bits > 1) {
-          __int128 signed_max = ((__int128)1 << (bits - 1)) - 1;
-          __int128 signed_min_abs = (__int128)1 << (bits - 1); // abs(min) = 2^(bits-1)
-          if (!negative) {
-            if (value > signed_max) return false;
-          } else {
-            if (value > signed_min_abs) return false;
-          }
-        }
-      }
-      return true;
-    }
-
     std::string to_string(int indent = 0) {
       std::string out;
       auto ind = indent_str(indent);
@@ -409,6 +345,48 @@ namespace sonic::frontend {
 
       out += ind + ")";
       return out;
+    }
+
+    int inferIntegerBitWidth() {
+      std::string s = value;
+
+      // trim leading zero
+      s.erase(0, s.find_first_not_of('0'));
+      if (s.empty()) s = "0";
+
+      auto fits = [&](int bits) {
+        // hitung max = 2^(bits-1) - 1
+        std::string max = "1";
+        for (int i = 0; i < bits - 1; ++i) {
+          int carry = 0;
+          for (int j = max.size() - 1; j >= 0; --j) {
+            int d = (max[j] - '0') * 2 + carry;
+            max[j] = char('0' + (d % 10));
+            carry = d / 10;
+          }
+          if (carry) max.insert(max.begin(), char('0' + carry));
+        }
+
+        // minus one
+        for (int i = max.size() - 1; i >= 0; --i) {
+          if (max[i] > '0') {
+            max[i]--;
+            break;
+          }
+          max[i] = '9';
+        }
+
+        // compare
+        if (s.size() != max.size())
+          return s.size() < max.size();
+        return s <= max;
+      };
+
+      if (fits(32))  return 32;
+      if (fits(64))  return 64;
+      if (fits(128)) return 128;
+
+      return 0; // overflow > i128
     }
 
   };

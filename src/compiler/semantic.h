@@ -29,6 +29,8 @@ namespace sonic::frontend {
     void analyze_expression(SonicExpr* expr);
     void analyze_types(SonicType* type);
 
+    void analyze_variable_declaration(SonicStmt* stmt);
+
     // helper
     Symbol* create_fn(const std::string& name);
     Symbol* create_var(const std::string& name);

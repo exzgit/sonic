@@ -1,8 +1,7 @@
 
-func add<T: Add>(a: T, b: T) -> T {
-}
+func cast(i: i128) -> i64 {}
 
 func main() {
-  let a: i32 = 122214124123123;
-  let b: i32 = a;
+  let a: i32 = 1;
+  let b: i64 = cast(a);
 }

@@ -48,16 +48,22 @@ namespace sonic::frontend {
         progSym->offset = offset;
 
         // move current symbols -> temp & move program symbols -> symbols
-        auto temp = symbols;
+        auto temp = std::move(symbols);
         symbols = progSym;
+
+
+        auto currentScope = scopeLevel;
+        scopeLevel = ScopeLevel::GLOBAL;
 
         for (auto& child : stmt->body) {
           eager_analyze(child.get());
         }
 
+        scopeLevel = currentScope;
+
         // declare current symbols -> temp & return symbols -> previous value
         temp->declare(progSym);
-        symbols = temp;
+        symbols = std::move(temp);
 
         break;
       }
@@ -74,7 +80,6 @@ namespace sonic::frontend {
 
         print("eager: analyze function '" + stmt->name + "'");
         auto funcSym = create_fn(stmt->name);
-        symbols->declare(funcSym);
 
         for (auto& param : stmt->parameters) {
           if (funcSym->exists(param->name)) {
@@ -96,6 +101,9 @@ namespace sonic::frontend {
 
         analyze_types(stmt->returnType.get());
         funcSym->type_ = stmt->returnType.get();
+
+        symbols->declare(funcSym);
+
         break;
       }
       default: break;
@@ -113,10 +121,14 @@ namespace sonic::frontend {
         auto temp = std::move(symbols);
         symbols = progSym;
 
+        auto currentScope = scopeLevel;
+        scopeLevel = ScopeLevel::GLOBAL;
+
         for (auto& child : stmt->body) {
           analyze_statement(child.get());
         }
 
+        scopeLevel = currentScope;
         symbols = temp;
         break;
       }
@@ -137,208 +149,27 @@ namespace sonic::frontend {
           offset = 0;
           depth = 0;
         }
-        
+
         auto funcSym = symbols->lookup_local(stmt->name);
         if (!funcSym) break;
 
         auto temp = std::move(symbols);
         symbols = funcSym;
 
+        scopeLevel = ScopeLevel::FUNC;
+
         for (auto& child : stmt->body) {
           analyze_statement(child.get());
         }
 
-        symbols = temp;
+        scopeLevel = ScopeLevel::GLOBAL;
+
+        symbols = std::move(temp);
         break;
       }
-      case StmtKind::VAR_DECL: {
-        if (symbols->existingLocal(stmt->name)) {
-          diag->report({
-            ErrorType::SEMANTIC,
-            Severity::ERROR,
-            stmt->location,
-            "variable '" + stmt->name + "' already declared in this scope"
-          });
-          break;
-        }
-
-        print("statement: analyze variable declaration '" + stmt->name + "'");
-
-        auto varSym = create_var(stmt->name);
-        varSym->mutability_ = stmt->mutability;
-        varSym->public_ = stmt->isPublic;
-        varSym->extern_ = stmt->isExtern;
-        varSym->location = stmt->location;
-
-        if (stmt->dataType) {
-          if (stmt->dataType->kind == TypeKind::VOID) {
-            diag->report({
-              ErrorType::SEMANTIC,
-              Severity::ERROR,
-              stmt->location,
-              "variables must not be of type void"
-            });
-            break;
-          }
-
-          analyze_types(stmt->dataType.get());
-          varSym->type_ = stmt->dataType.get();
-        }
-
-        // analyze initializer if present
-        if (stmt->expr) {
-          analyze_expression(stmt->expr.get());
-        } else {
-          // no initializer: declare variable with provided type (if any) and return
-          symbols->declare(varSym);
-          break;
-        }
-
-        // at this point stmt->expr exists; guard resolvedType checks
-        if (!stmt->expr->resolvedType) {
-          // allow UNTYPED_LITERAL and NONE to remain resolvable later; otherwise report
-          if (stmt->expr->kind != ExprKind::UNTYPED_LITERAL && stmt->expr->kind != ExprKind::NONE) {
-            diag->report({
-              ErrorType::SEMANTIC,
-              Severity::ERROR,
-              stmt->expr->location,
-              "unable to determine type of initializer"
-            });
-            break;
-          }
-        }
-
-        if (stmt->expr->resolvedType && stmt->expr->resolvedType->kind == TypeKind::VOID) {
-          diag->report({
-            ErrorType::SEMANTIC,
-            Severity::ERROR,
-            stmt->expr->location,
-            "cannot assign with void type"
-          });
-          break;
-        }
-
-        // declare early to prevent redefinition within initializer analysis
-        symbols->declare(varSym);
-
-        if (stmt->dataType) {
-          if (stmt->expr->kind == ExprKind::UNTYPED_LITERAL) {
-            SonicType* target = stmt->dataType.get();
-
-            if (target->isInteger()) {
-              // existing AST-level check
-              if (!stmt->expr->fitsIntegerLiteral(target->bitWidth())) {
-                diag->report({
-                  ErrorType::SEMANTIC,
-                  Severity::ERROR,
-                  stmt->expr->location,
-                  "integer literal overflow" 
-                });
-              }
-
-              // use SonicExpr helper to test literal fit (avoids duplicating parsing logic here)
-              std::string lit = stmt->expr->literal_text();
-              if (lit.empty()) {
-                // fallback: if earlier fitsIntegerLiteral already set resolvedType to target, declare
-                if (stmt->expr->resolvedType == target) {
-                  stmt->expr->resolvedType = target;
-                  varSym->type_ = target;
-                  // already declared above
-                }
-              } else {
-                unsigned int bits = target->bitWidth();
-                if (bits == 0) bits = 32; // fallback
-                if (stmt->expr->fits_signed_integer_bits(bits)) {
-                  stmt->expr->resolvedType = target;
-                  varSym->type_ = target;
-                } else {
-                  diag->report({
-                    ErrorType::SEMANTIC,
-                    Severity::ERROR,
-                    stmt->expr->location,
-                    "integer literal overflow"
-                  });
-                }
-              }
-            }
-            else if (target->isFloat()) {
-              stmt->expr->resolvedType = target;
-              varSym->type_ = target;
-            }
-            else {
-              diag->report({
-                ErrorType::SEMANTIC,
-                Severity::ERROR,
-                stmt->expr->location,
-                "literal cannot be assigned to this type"
-              });
-            }
-          }
-          else {
-            // both sides should have resolved types (not untyped literal)
-            auto src = stmt->expr->resolvedType;
-            auto tgt = stmt->dataType.get();
-
-            if (!src) {
-              diag->report({
-                ErrorType::SEMANTIC,
-                Severity::ERROR,
-                stmt->expr->location,
-                "unable to determine type of initializer"
-              });
-              break;
-            }
-
-            if (src->kind == tgt->kind) {
-              // exact same kind
-              varSym->type_ = tgt;
-            }
-            else if ((src->isInteger() || src->isFloat()) && (tgt->isInteger() || tgt->isFloat())) {
-              // numeric conversion: allow narrowing (src.bitWidth >= tgt.bitWidth), disallow widening
-              if (src->bitWidth() >= tgt->bitWidth()) {
-                varSym->type_ = tgt;
-              } else {
-                diag->report({
-                  ErrorType::SEMANTIC,
-                  Severity::ERROR,
-                  stmt->expr->location,
-                  "widening conversion requires explicit cast"
-                });
-              }
-            }
-            else {
-              diag->report({
-                ErrorType::SEMANTIC,
-                Severity::ERROR,
-                stmt->expr->location,
-                "type mismatch"
-              });
-            }
-          }
-        } else {
-          // no explicit dataType: infer from initializer
-          if (stmt->expr->kind == ExprKind::NONE) {
-            varSym->type_ = new SonicType();
-            varSym->type_->kind = TypeKind::POINTER;
-            varSym->type_->isNullable = true;
-            // already declared above
-            break;
-          }
-
-          if (!stmt->expr->resolvedType) {
-            diag->report({
-              ErrorType::SEMANTIC,
-              Severity::ERROR,
-              stmt->expr->location,
-              "unable to determine type of initializer"
-            });
-            break;
-          }
-
-          stmt->dataType = stmt->expr->resolvedType->clone();
-          varSym->type_ = stmt->dataType.get();
-        }
-      }
+      case StmtKind::VAR_DECL:
+        analyze_variable_declaration(stmt);
+        break;
       default: {
         print("unhandled statement kind in semantic analyzer '" + stmtkind_to_string(stmt->kind) + "'");
         break;
@@ -346,14 +177,154 @@ namespace sonic::frontend {
     }
   }
 
+  void SemanticAnalyzer::analyze_variable_declaration(SonicStmt* stmt) {
+    if (!stmt) return;
+
+    if (scopeLevel == ScopeLevel::FUNC) {
+      bool isErr = false;
+
+      if (stmt->isExtern) {
+        diag->report({
+          ErrorType::SEMANTIC,
+          Severity::ERROR,
+          stmt->location,
+          "local variables cannot be extern"
+        });
+        isErr = true;
+      }
+
+      if (stmt->mutability == Mutability::STATIC || stmt->mutability == Mutability::CONSTANT) {
+        diag->report({
+          ErrorType::SEMANTIC,
+          Severity::ERROR,
+          stmt->location,
+          "local variables cannot be " + mutability_to_string(stmt->mutability)
+        });
+        isErr = true;
+      }
+
+      if (stmt->isPublic) {
+        diag->report({
+          ErrorType::SEMANTIC,
+          Severity::ERROR,
+          stmt->location,
+          "local variables cannot be public"
+        });
+        isErr = true;
+      }
+
+      if (isErr) return;
+    }
+
+    auto varSym = create_var(stmt->name);
+    varSym->extern_ = stmt->isExtern;
+    varSym->public_ = stmt->isPublic;
+    varSym->mutability_ = stmt->mutability;
+
+    if (stmt->dataType) {
+      if (stmt->dataType->kind == TypeKind::VOID) {
+        diag->report({
+          ErrorType::SEMANTIC,
+          Severity::ERROR,
+          stmt->location,
+          "variable cannot be void"
+        });
+        return;
+      }
+
+      analyze_types(stmt->dataType.get());
+      varSym->type_ = stmt->dataType.get();
+    }
+
+    if (!stmt->expr) {
+      symbols->declare(varSym);
+      return;
+    }
+
+    analyze_expression(stmt->expr.get());
+
+    if (stmt->expr->resolvedType && stmt->expr->resolvedType->kind == TypeKind::VOID) {
+      diag->report({
+        ErrorType::SEMANTIC,
+        Severity::ERROR,
+        stmt->location,
+        "variable cannot be assigned with void"
+      });
+      return;
+    }
+
+    if (stmt->dataType) {
+      bool isNullable = stmt->dataType->isNullable;
+
+      if (stmt->dataType->kind == TypeKind::AUTO) {
+        stmt->dataType = stmt->expr->resolvedType->clone();
+
+        if (stmt->expr->resolvedType->kind == TypeKind::UNRESOLVED) {
+          if (stmt->expr->kind == ExprKind::INT) {
+            if (stmt->expr->inferIntegerBitWidth() == 32) stmt->dataType->kind = TypeKind::I64;
+            else if (stmt->expr->inferIntegerBitWidth() == 64) stmt->dataType->kind = TypeKind::I64;
+            else if (stmt->expr->inferIntegerBitWidth() == 128) stmt->dataType->kind = TypeKind::I128;
+          } else if (stmt->expr->kind == ExprKind::FLOAT) {
+            stmt->dataType->kind = TypeKind::F64;
+          }
+
+          stmt->expr->resolvedType = stmt->dataType.get();
+        }
+
+        stmt->dataType->isNullable = isNullable;
+        varSym->type_ = stmt->dataType.get();
+        symbols->declare(varSym);
+        return;
+      } else {
+        if (!stmt->expr->resolvedType)
+          return;
+
+        if (stmt->dataType->isInteger() && stmt->expr->resolvedType->kind == TypeKind::UNRESOLVED) {
+          if (stmt->expr->kind == ExprKind::INT) {
+            if (stmt->expr->inferIntegerBitWidth() <= stmt->dataType->bitWidth()) stmt->expr->resolvedType->kind = stmt->dataType->kind;
+            else {
+              diag->report({
+                ErrorType::SEMANTIC,
+                Severity::ERROR,
+                stmt->expr->location,
+                "cannot infer literal"
+              });
+            }
+          } else if (stmt->expr->kind == ExprKind::FLOAT) {
+            stmt->expr->resolvedType->kind = TypeKind::F64;
+          }
+
+          symbols->declare(varSym);
+          return;
+        }
+
+
+        if (stmt->dataType->isInteger() && stmt->expr->resolvedType->isInteger()) {
+          if (stmt->dataType->bitWidth() != stmt->expr->resolvedType->bitWidth()) {
+            diag->report({
+              ErrorType::SEMANTIC,
+              Severity::ERROR,
+              stmt->expr->location,
+              "variable type mismatch"
+            });
+            return;
+          }
+
+          symbols->declare(varSym);
+        }
+      }
+    }
+
+  }
+
   void SemanticAnalyzer::analyze_expression(SonicExpr* expr) {
     if (!expr) return;
 
     switch (expr->kind) {
-      case ExprKind::UNTYPED_LITERAL: {
-        // set a reasonable default for untyped integer literal (inference may override)
+      case ExprKind::FLOAT:
+      case ExprKind::INT: {
         expr->resolvedType = new SonicType();
-        expr->resolvedType->kind = TypeKind::I64;
+        expr->resolvedType->kind = TypeKind::UNRESOLVED;
         expr->resolvedType->location = expr->location;
         break;
       }
@@ -399,16 +370,14 @@ namespace sonic::frontend {
         }
 
         expr->resolvedType = sym->type_;
-        if (expr->resolvedType) expr->resolvedType->location = expr->location;
+        expr->resolvedType->location = expr->location;
         break;
       }
       case ExprKind::SCOPE_ACCESS: {
-        // ...existing code or future implementation...
-        break;
+
       }
       case ExprKind::MEMBER_ACCESS: {
-        // ...existing code or future implementation...
-        break;
+
       }
       case ExprKind::CALL: {
         if (expr->callee->kind == ExprKind::IDENT) {
@@ -417,7 +386,7 @@ namespace sonic::frontend {
             diag->report({
               ErrorType::SEMANTIC,
               Severity::ERROR,
-              expr->location,
+              expr->callee->location,
               "function '" + expr->callee->name + "' is undefined"
             });
             break;
@@ -429,24 +398,10 @@ namespace sonic::frontend {
             }
           }
 
-          size_t expected = sym->variadic_ ? expr->arguments.size() : sym->params_.size();
-          for (size_t i = 0; i < expected; ++i) {
-            if (i >= expr->arguments.size()) break;
+          for (int i = 0; i < (sym->variadic_ ? expr->arguments.size() : sym->params_.size()); i++) {
             analyze_expression(expr->arguments[i].get());
-
-            auto argType = expr->arguments[i]->resolvedType;
-            if (!argType) {
-              diag->report({
-                ErrorType::SEMANTIC,
-                Severity::ERROR,
-                expr->arguments[i]->location,
-                "unable to determine type of argument"
-              });
-              continue;
-            }
-
             if (sym->variadic_ && i >= sym->params_.size()) {
-              if (argType->kind != sym->params_.back()->kind) {
+              if (expr->arguments[i]->resolvedType->kind != sym->params_.back()->kind) {
                 diag->report({
                   ErrorType::SEMANTIC,
                   Severity::ERROR,
@@ -455,7 +410,7 @@ namespace sonic::frontend {
                 });
               }
             } else {
-              if (i < sym->params_.size() && argType->kind != sym->params_[i]->kind) {
+              if (expr->arguments[i]->resolvedType->kind != sym->params_[i]->kind) {
                 diag->report({
                   ErrorType::SEMANTIC,
                   Severity::ERROR,
