@@ -1,8 +1,11 @@
 #pragma once
 
+// c++ library
 #include <string>
-#include "source.h"
 #include <unordered_map>
+
+// local headers
+#include "source.h"
 
 enum class TokenType {
   ENDOFFILE,
@@ -37,9 +40,6 @@ enum class TokenType {
   I32,
   I64,
   I128,
-  U32,
-  U64,
-  U128,
   F32,
   F64,
   VOID,
@@ -52,6 +52,7 @@ enum class TokenType {
   SELF,
   MODULE,
   ALIAS,
+  IN,
 
   LEFTPAREN,
   RIGHTPAREN,
@@ -136,17 +137,15 @@ inline std::string tokenTypeToValue(TokenType t) {
     case TokenType::ENUM:     return "enum";
     case TokenType::NEW:      return "new";
     case TokenType::SELF:     return "self";
-    case TokenType::MODULE:  return "module";
-    case TokenType::ALIAS: return "as";
+    case TokenType::MODULE:   return "module";
+    case TokenType::ALIAS:    return "as";
+    case TokenType::IN:       return "in";
 
 
     // types
     case TokenType::I32:  return "i32";
     case TokenType::I64:  return "i64";
     case TokenType::I128: return "i128";
-    case TokenType::U32:  return "u32";
-    case TokenType::U64:  return "u64";
-    case TokenType::U128: return "u128";
     case TokenType::F32:  return "f32";
     case TokenType::F64:  return "f64";
     case TokenType::VOID: return "void";
@@ -248,14 +247,12 @@ inline const std::string tokenTypeToString(TokenType t) {
     case TokenType::ENUM:     return "ENUM";
     case TokenType::NEW:      return "NEW";
     case TokenType::SELF:     return "SELF";
-    case TokenType::ALIAS: return "ALIAS";
+    case TokenType::ALIAS:    return "ALIAS";
+    case TokenType::IN:       return "IN";
 
     case TokenType::I32:  return "I32";
     case TokenType::I64:  return "I64";
     case TokenType::I128: return "I128";
-    case TokenType::U32:  return "U32";
-    case TokenType::U64:  return "U64";
-    case TokenType::U128: return "U128";
     case TokenType::F32:  return "F32";
     case TokenType::F64:  return "F64";
     case TokenType::VOID: return "VOID";
@@ -351,9 +348,6 @@ const std::unordered_map<std::string, TokenType> keywords = {
   {"i32", TokenType::I32},
   {"i64", TokenType::I64},
   {"i128", TokenType::I128},
-  {"u32", TokenType::U32},
-  {"u64", TokenType::U64},
-  {"u128", TokenType::U128},
   {"f32", TokenType::F32},
   {"f64", TokenType::F64},
   {"void", TokenType::VOID},
@@ -369,6 +363,7 @@ const std::unordered_map<std::string, TokenType> keywords = {
   {"self", TokenType::SELF},
   {"module", TokenType::MODULE},
   {"as", TokenType::ALIAS},
+  {"in", TokenType::IN},
 };
 
 const std::unordered_map<std::string, TokenType> punctuation = {

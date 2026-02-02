@@ -1,8 +1,12 @@
+
+// c++ library
+#include <cctype>
+#include <cwctype>
+
+// local header
 #include "lexer.h"
 #include "source.h"
 #include "token.h"
-#include <cctype>
-#include <cwctype>
 
 namespace sonic::frontend {
 
@@ -20,20 +24,26 @@ Token Lexer::next_token() {
     return Token(TokenType::ENDOFFILE, "", "\\0", SourceLocation(filename, lines[line - 1], "", line, column, index));
 
 
-  if (peek() == '/') {
-    advance();
+  while (true) {
     if (peek() == '/') {
-      skipComment();
-    } else if (peek() == '*') {
-      skipMultiComment();
-    } else {
-      column--;
-      index--;
+      advance();
+      if (peek() == '/') {
+        skipComment();
+      } else if (peek() == '*') {
+        skipMultiComment();
+      } else {
+        column--;
+        index--;
+        break;
+      }
+      continue;
     }
+
+    break;
   }
 
   skipWhitespace();
-  Token tok = Token(TokenType::INVALID, peek() + "", "\\0", SourceLocation(filename, lines[line - 1], "", line, column, index));
+  Token tok = Token(TokenType::INVALID, std::string(1, peek()), "\\0", SourceLocation(filename, lines[line - 1], "", line, column, index));
 
   if (isdigit(peek())) {
     tok = getTokenNumber();

@@ -15,7 +15,6 @@ inc_dirs = include_directories([
   'src/driver',
   'src/core',
   'src/compiler',
-  'src/compiler/ast',
 ])
 
 # Source files
@@ -24,8 +23,8 @@ sources = files([
   'src/compiler/lexer.cpp',
   'src/compiler/parser.cpp',
   'src/compiler/semantic.cpp',
-  'src/compiler/ast/debug.cpp',
   'src/core/startup.cpp',
+  'src/core/debugging.cpp',
   'src/core/io.cpp',
 ])
 

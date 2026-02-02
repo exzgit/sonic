@@ -1,5 +1,8 @@
-import math use { add };
+
+func add<T: Add>(a: T, b: T) -> T {
+}
 
 func main() {
-  add(1, 2);
+  let a: i32 = 122214124123123;
+  let b: i32 = a;
 }

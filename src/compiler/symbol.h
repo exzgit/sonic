@@ -1,258 +1,139 @@
 #pragma once
 
+// c++ library
+#include <cstdint>
 #include <string>
+#include <memory>
+#include <unordered_map>
 #include <vector>
 
+// local headers
+#include "ast.h"
 #include "source.h"
-#include "stmt.h"
-#include "expr.h"
-#include "type.h"
-
-#include <iostream>
-
-#include "ast/debug.h"
-
-using namespace std;
 
 namespace sonic::frontend {
 
-  class SymbolTable;
+  enum class ScopeLevel : uint8_t {
+    GLOBAL,
+    BLOCK,
+    FUNC
+  };
 
   enum class SymbolKind {
-    FUNCTION,
-    PARAMETER,
-    LETDECL,
-    STRUCT,
-    ENUM,
-    VARIABLE,
     NAMESPACE,
-    BLOCK,
-    ALIAS,
+    FUNCTION,
+    VARIABLE,
     UNKNOWN,
   };
 
-  inline std::string symbolKindToString(SymbolKind kind) {
-    switch (kind) {
-      case SymbolKind::FUNCTION: return "function";
-      case SymbolKind::PARAMETER: return "parameter";
-      case SymbolKind::LETDECL: return "let declaration";
-      case SymbolKind::STRUCT: return "struct";
-      case SymbolKind::ENUM: return "enum";
-      case SymbolKind::VARIABLE: return "variable";
-      case SymbolKind::NAMESPACE: return "namespace";
-      case SymbolKind::BLOCK: return "block";
-      case SymbolKind::ALIAS: return "alias";
-      case SymbolKind::UNKNOWN: return "unknown";
+  inline std::string symbolkind_to_string(SymbolKind mut) {
+    switch(mut) {
+      case sonic::frontend::SymbolKind::NAMESPACE: return "namespace";
+      case sonic::frontend::SymbolKind::FUNCTION: return "function";
+      case sonic::frontend::SymbolKind::VARIABLE: return "variable";
+      default: return "unknown";
     }
-    return "unknown";
   }
-
-  enum ScopeLevel {
-    GLOBAL_SCOPE = 0,
-    FUNCTION_SCOPE = 1,
-    BLOCK_SCOPE = 2,
-  };
 
   class Symbol {
-    public:
+  public:
     SymbolKind kind = SymbolKind::UNKNOWN;
-    std::string name;
-    std::string mangledName;
+    std::string name_;
+    std::string mangleName_;
+    SonicType* type_ = nullptr;
+
+    Symbol* parent_ = nullptr;
+
+    std::vector<SonicType*> params_;
+    std::unordered_map<std::string, SonicType*> generics_;
+    std::unordered_map<std::string, Symbol*> children_;
+
     SourceLocation location;
 
-    Type* dataType = nullptr;
-    Type* returnType = nullptr;
+    size_t offset           = 0;
+    size_t depth            = 0;
+    ScopeLevel scopeLevel   = ScopeLevel::FUNC;
 
-    Expr* expression = nullptr;
+    bool variadic_          = false;
+    bool extern_            = false;
+    Mutability mutability_  = Mutability::DEFAULT;
+    bool public_            = false;
 
-    Stmt* statement = nullptr;
+    Symbol* lookup_local(const std::string& name) {
+      auto it = children_.find(name);
+      if (it == children_.end()) return nullptr;
+      return it->second;
+    }
 
-    vector<Type*> parameterTypes;
-    vector<Generic*> genericTypes;
-    vector<MacroAttr*> macroAttributes;
+    Symbol* lookup(const std::string& name) {
+      auto sym = lookup_local(name);
+      if (!sym && parent_) return parent_->lookup(name);
+      return sym;
+    }
 
-    bool isConst    = false;
-    bool isStatic   = false;
-    bool isAlive    = true;
-    bool isVariadic = false;
-    bool isExtern   = false;
-    bool isDeclare  = false;
-    bool isPublic   = false;
+    bool existingLocal(const std::string& name) { return children_.find(name) != children_.end(); }
 
-    Symbol* ref = nullptr;
-    SymbolTable* table = nullptr;
+    bool exists(const std::string & name) {
+      if (existingLocal(name)) return true;
+      else if (parent_) return parent_->exists(name);
+      else return false;
+    }
 
-    ScopeLevel scopeLevel = GLOBAL_SCOPE;
+    void declare(Symbol* sym) {
+      children_[sym->name_] = sym;
+    }
 
-    Symbol() = default;
-    ~Symbol() = default;
+    std::unique_ptr<Symbol> clone() {
+      auto sym = std::make_unique<Symbol>();
+      sym->name_ = name_;
+      sym->mangleName_ = mangleName_;
+      sym->type_ = type_;
+      sym->parent_ = parent_;
+      sym->location = location.clone();
+      sym->offset = offset;
+      sym->depth = depth;
+      sym->scopeLevel = scopeLevel;
+      sym->variadic_ = variadic_;
+      sym->extern_ = extern_;
+      sym->mutability_ = mutability_;
+      sym->public_ = public_;
+
+      for (auto& generic : generics_) {
+        sym->generics_.emplace(generic.first, generic.second);
+      }
+
+      for (auto& param : params_) {
+        sym->params_.push_back(param);
+      }
+
+      for (auto& child : children_) {
+        sym->children_.emplace(child.first, child.second);
+      }
+
+      return sym;
+    }
+
+    std::string to_string(int indent = 0) {
+      std::string out;
+      auto ind = indent_str(indent);
+
+      out += ind + "(Symbol ";
+      out += name_ + " kind=" + symbolkind_to_string(kind) + "\n";
+
+      if (type_) {
+        out += ind + "  type:\n";
+        out += type_->to_string(indent + 2) + "\n";
+      }
+
+      if (!params_.empty()) {
+        out += ind + "  params:\n";
+        for (auto& p : params_) {
+          out += ind + "    - " + typekind_to_string(p->kind) + "\n";
+        }
+      }
+
+      out += ind + ")";
+      return out;
+    }
   };
-
-  class SymbolTable {
-    public:
-    Symbol* parent = nullptr;
-    std::vector<Symbol*> symbols;
-
-    SymbolTable() = default;
-    explicit SymbolTable(Symbol* parent) : parent(parent) {}
-    ~SymbolTable() = default;
-
-    bool is_exists(const std::string& name) {
-      for (auto symbol : symbols) {
-        if (symbol->name == name) {
-          return true;
-        }
-      }
-      return false;
-    }
-
-    Symbol* find(const std::string& name) {
-      for (auto& symbol : symbols) {
-        if (symbol->name == name) {
-          return symbol;
-        }
-      }
-
-      if (!parent) return nullptr;
-
-      return parent->table->find(name);
-    }
-
-    Symbol* find_local(const std::string& name) {
-      for (auto& symbol : symbols) {
-        if (symbol->name == name) {
-          return symbol;
-        }
-      }
-      return nullptr;
-    }
-
-    void insert(Symbol* symbol) {
-      symbols.push_back(symbol);
-    }
-  };
-
-  inline void printSymbol(const Symbol* symbol, int indent = 0) {
-    if (!symbol) {
-      std::cout << "<symbol-nullptr>\n";
-      return;
-    }
-
-    if (symbol->kind != SymbolKind::UNKNOWN) {
-      for (int i = 0; i < indent; i++) std::cout << "  ";
-      std::cout << "symbol@" << symbolKindToString(symbol->kind) << " " << symbol->name << " (" << symbol->mangledName << ")\n";
-    }
-
-    if (symbol->ref) {
-      std::cout << "ref:\n";
-      printSymbol(symbol->ref, indent + 1);
-    }
-
-    if (symbol->table) {
-      for (int i = 0; i < indent; i++) std::cout << "  ";
-      std::cout << "symbol table:\n";
-      for (auto& sym : symbol->table->symbols) {
-        printSymbol(sym, indent + 1);
-      }
-    }
-
-    if (symbol->statement) {
-      for (int i = 0; i < indent; i++) std::cout << "  ";
-      std::cout << "defined at: " << symbol->statement->locations.toString() << "\n";
-    }
-
-    if (symbol->dataType) {
-      for (int i = 0; i < indent; i++) std::cout << "  ";
-      std::cout << "data type:\n";
-      ASTPrinter printer;
-      printer.indent_level = indent + 1;
-      printer.print_type(symbol->dataType);
-    }
-
-    if (symbol->returnType) {
-      for (int i = 0; i < indent; i++) std::cout << "  ";
-      std::cout << "return type:\n";
-      ASTPrinter printer;
-      printer.indent_level = indent + 1;
-      printer.print_type(symbol->returnType);
-    }
-
-    if (symbol->statement) {
-      for (int i = 0; i < indent; i++) std::cout << "  ";
-      std::cout << "statement:\n";
-      ASTPrinter printer;
-      printer.indent_level = indent + 1;
-      printer.print_stmt(symbol->statement);
-    }
-
-    if (symbol->expression) {
-      for (int i = 0; i < indent; i++) std::cout << "  ";
-      std::cout << "expression:\n";
-      ASTPrinter printer;
-      printer.indent_level = indent + 1;
-      printer.print_expr(symbol->expression);
-    }
-
-    if (!symbol->genericTypes.empty()) {
-      for (int i = 0; i < indent; i++) std::cout << "  ";
-      std::cout << "generic types:\n";
-      ASTPrinter printer;
-      printer.indent_level = indent + 1;
-      for (auto& generic : symbol->genericTypes) {
-        printer.print_type(generic->type);
-      }
-    }
-
-    if (!symbol->macroAttributes.empty()) {
-      for (int i = 0; i < indent; i++) std::cout << "  ";
-      std::cout << "macro attributes:\n";
-      ASTPrinter printer;
-      printer.indent_level = indent + 1;
-      for (auto& macro : symbol->macroAttributes) {
-        printer.print(macro->name);
-      }
-    }
-
-    if (symbol->isConst) {
-      for (int i = 0; i < indent; i++) std::cout << "  ";
-      std::cout << "isConst: true\n";
-    }
-
-    if (symbol->isStatic) {
-      for (int i = 0; i < indent; i++) std::cout << "  ";
-      std::cout << "isStatic: true\n";
-
-    }
-
-    if (symbol->isAlive) {
-      for (int i = 0; i < indent; i++) std::cout << "  ";
-      std::cout << "isAlive: true\n";
-    }
-
-    if (symbol->isVariadic) {
-      for (int i = 0; i < indent; i++) std::cout << "  ";
-      std::cout << "isVariadic: true\n";
-    }
-
-    if (
-    symbol->isExtern) {
-      for (int i = 0; i < indent; i++) std::cout << "  ";
-      std::cout << "isExtern: true\n";
-    }
-
-    if (symbol->isDeclare) {
-      for (int i = 0; i < indent; i++) std::cout << "  ";
-      std::cout << "isDeclare: true\n";
-    }
-
-    if (symbol->isPublic) {
-      for (int i = 0; i < indent; i++) std::cout << "  ";
-      std::cout << "isPublic: true\n";
-    }
-
-    if (!symbol->location.path.empty()) {
-      for (int i = 0; i < indent; i++) std::cout << "  ";
-      std::cout << "location: " << symbol->location.toString() << "\n";
-    }
-  }
-}
+};

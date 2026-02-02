@@ -1,9 +1,12 @@
-#include "startup.h"
-#include "config.h"
-#include "target_info.h"
+// c++ library
 #include <iostream>
 #include <fstream>
 #include <filesystem>
+
+// local header
+#include "startup.h"
+#include "config.h"
+#include "target_info.h"
 
 namespace fs = std::filesystem;
 
@@ -51,7 +54,7 @@ namespace sonic::startup {
   std::string pathToNamespace(const fs::path& file) {
     fs::path rel = fs::relative(file, fs::path(sonic::config::project_root));
 
-    std::string out = "_SN" + sonic::config::project_name;
+    std::string out = "sn" + sonic::config::project_name;
     for (auto& part : rel) {
       if (part.extension() == ".sn") {
         out += "_" + part.stem().string();
@@ -59,7 +62,7 @@ namespace sonic::startup {
         out += "_" + part.string();
       }
     }
-    return out; 
+    return out;
   }
 
   void setProjectRoot(const std::string& entryFile) {

@@ -1,10 +1,11 @@
+// c++ library
+#include <memory>
+
+// local header
 #include "parser.h"
+#include "ast.h"
 #include "diagnostics.h"
-#include "operand.h"
-#include "stmt.h"
 #include "token.h"
-#include "type.h"
-#include "../core/io.h"
 
 namespace sonic::frontend {
 
@@ -13,400 +14,171 @@ namespace sonic::frontend {
     current_token = new Token(lexer->next_token());
   }
 
-  Stmt* Parser::parse() {
-    Stmt* program = new Stmt();
+  std::unique_ptr<SonicStmt> Parser::parse() {
+    auto program = std::make_unique<SonicStmt>();
     program->kind = StmtKind::PROGRAM;
-    program->filename = filename;
-    program->locations = current_token->location;
+    program->name = filename;
+    program->location = current_token->location;
 
     while (!match(TokenType::ENDOFFILE)) {
-      program->children.push_back(parse_stmt());
+      program->body.push_back(parse_stmt());
       if (match(TokenType::ENDOFFILE)) break;
     }
 
     return program;
   }
 
-  Stmt* Parser::parse_stmt() {
-    Stmt* stmt = new Stmt();
-
-    if (match(TokenType::IMPORT)) {
-      next();
-
-      stmt->kind = StmtKind::IMPORT;
-      stmt->locations = current_token->location;
-      std::string path = expect(TokenType::IDENT)->value;
-      stmt->importPath.push_back(path);
-
-      auto loc = stmt->locations;
-
-      while (match(TokenType::COLON_COLON)) {
-        next();
-
-        std::string pth = expect(TokenType::IDENT)->value;
-        path += "/" + pth;
-        stmt->importPath.push_back(pth);
-
-        if (!match(TokenType::COLON_COLON)) break;
-      }
-
-      loc.start++;
-      loc.end = previous_token->location.end + 1;
-
-      if (match(TokenType::USE)) {
-        next();
-
-        if (match(TokenType::STAR)) {
-          next();
-          stmt->isImportAll = true;
-        } else if (match(TokenType::LEFTBRACE)) {
-          next();
-
-          while (!match(TokenType::RIGHTBRACE) && !match(TokenType::ENDOFFILE)) {
-            if (match(TokenType::STAR)) {
-              next();
-              stmt->isImportAll = true;
-              break;
-            }
-            ImportItem item = ImportItem();
-            item.locations = current_token->location;
-            item.name = expect(TokenType::IDENT)->value;
-
-            if (match(TokenType::ALIAS)) {
-              next();
-              item.useAlias = true;
-              item.alias = expect(TokenType::IDENT)->value;
-            }
-
-            stmt->importItems.push_back(item);
-
-            if (!match(TokenType::COMMA)) break;
-            else next();
-          }
-
-          expect(TokenType::RIGHTBRACE);
-        }
-      } else {
-        stmt->isImportAll = true;
-      }
-
-      skip_semicolon();
-
-      return stmt;
-    }
-
-    if (match(TokenType::EXTERN) && !is_extern) {
-      stmt->locations = current_token->location;
-      is_extern = true;
-      stmt->body = parse_block();
-      is_extern = false;
-    } else if (match(TokenType::EXTERN)) {
-      diag->report({
-        ErrorType::SYNTAX,
-        Severity::ERROR,
-        current_token->location,
-        "unexpected syntax '" + current_token->value + "'",
-        "do not use block extern inside block extern",
-        ""
-      });
-      next();
-    }
-
-    if (match(TokenType::IF)) {
-      next();
-      stmt->kind = StmtKind::IFELSE;
-      stmt->locations = current_token->location;
-      stmt->value = parse_expr(0);
-      stmt->then_block = parse_block();
-
-      if (match(TokenType::ELSE)) {
-        next();
-        if (match(TokenType::IF)) {
-          stmt->else_block = parse_stmt();
-        } else {
-          stmt->else_block = parse_block();
-        }
-      }
-
-      return stmt;
-    }
+  std::unique_ptr<SonicStmt> Parser::parse_stmt() {
+    auto stmt = std::make_unique<SonicStmt>();
+    stmt->location = current_token->location;
 
     if (match(TokenType::IDENT)) {
-      stmt->kind = StmtKind::EXPRTOSTMT;
-      stmt->locations = current_token->location;
-      return parse_assignment(stmt);
+      return parse_assignment();
     }
 
-    stmt->isExtern = is_extern;
-
+    // parse public syntax
     if (match(TokenType::PUBLIC)) {
-      stmt->locations = current_token->location;
-      stmt->isPublic = true;
       next();
-
-      if (!match(TokenType::STATIC) && !match(TokenType::CONST) && !match(TokenType::FUNCT) && !match(TokenType::STRUCT) && !match(TokenType::ENUM)) {
-        diag->report({
-          ErrorType::SYNTAX,
-          Severity::ERROR,
-          current_token->location,
-          "unexpected syntax '" + current_token->value + "'",
-          "expected 'static', 'const', 'func', 'struct', or 'enum' after 'public'",
-          ""
-        });
-      }
+      stmt->isPublic = true;
     }
 
-    if (match(TokenType::STRUCT)) {
+    // parse extern syntax
+    if (match(TokenType::EXTERN)) {
       next();
-      stmt->kind = StmtKind::STRUCT;
-      stmt->locations = current_token->location;
-      if (match(TokenType::IDENT)) {
-        stmt->name = expect(TokenType::IDENT)->value;
-      } else {
-        expect(TokenType::IDENT);
-        if (match(TokenType::LEFTBRACE) || match(TokenType::LESS)) {}
-        else next();
-      }
-
-      if (match(TokenType::LESS)) {
-        next();
-
-        while (!match(TokenType::GREATER) && !match(TokenType::ENDOFFILE)) {
-          auto* generic = new Generic();
-          generic->name = expect(TokenType::IDENT)->value;
-          if (match(TokenType::COLON)) {
-            next();
-            generic->type = parse_type();
-          }
-          stmt->genericType.push_back(generic);
-          if (!match(TokenType::COMMA)) break;
-          next();
-        }
-
-        expect(TokenType::GREATER);
-
-        if (stmt->genericType.empty())
-          diag->report({
-            ErrorType::SYNTAX,
-            Severity::ERROR,
-            current_token->location,
-            "expected generic type",
-            "generic type cannot be empty"
-          });
-      }
-
-      expect(TokenType::LEFTBRACE);
-      while (!match(TokenType::RIGHTBRACE) && !match(TokenType::ENDOFFILE)) {
-        StructField field;
-        field.locations = current_token->location;
-        field.name = expect(TokenType::IDENT)->value;
-        expect(TokenType::COLON);
-        field.type = parse_type();
-        stmt->structFields.push_back(field);
-        skip_semicolon();
-      }
-      expect(TokenType::RIGHTBRACE);
-
-      return stmt;
+      stmt->isExtern = true;
     }
 
     if (match(TokenType::STATIC) || match(TokenType::CONST)) {
-      stmt->kind = StmtKind::VARDECL;
+      // MARK: Parse Static || Constant Declaration
+      next();
+      stmt->kind = StmtKind::VAR_DECL;
+      stmt->mutability = previous_token->type == TokenType::STATIC ? Mutability::STATIC : Mutability::CONSTANT;
+      stmt->location = current_token->location;
 
-      stmt->locations = current_token->location;
-      stmt->isStatic = match(TokenType::STATIC);
-      stmt->isConstant = match(TokenType::CONST);
+      expect(TokenType::IDENT);
+      stmt->name = previous_token->value;
+      expect(TokenType::COLON);
+      stmt->dataType = parse_type();
+      expect(TokenType::EQUAL);
+      stmt->expr = parse_expr();
 
+      skip_semicolon();
+    } else if (match(TokenType::LET)) {
+      // MARK: Parse Variable Declaration
       next();
 
-      if (match(TokenType::IDENT)) {
-        stmt->locations = current_token->location;
-        stmt->name = expect(TokenType::IDENT)->value;
+      stmt->kind = StmtKind::VAR_DECL;
+      stmt->location = current_token->location;
 
-        expect(TokenType::COLON);
+      expect(TokenType::IDENT);
+      stmt->name = previous_token->value;
+
+      if (match(TokenType::COLON)) {
+        next();
         stmt->dataType = parse_type();
-
-        expect(TokenType::EQUAL);
-        stmt->value = parse_expr(0);
-        stmt->isDefine = true;
-
-        skip_semicolon();
-        return stmt;
-      } else if (stmt->isConstant) {
-        diag->report({
-          ErrorType::SYNTAX,
-          Severity::ERROR,
-          current_token->location,
-          "expected identifier after 'const'",
-          "constant declaration must have an identifier",
-          ""
-        });
-        return stmt;
-      }
-    }
-
-
-    if (match(TokenType::FUNCT)) {
-      stmt->kind = StmtKind::FUNCTION;
-      next();
-      stmt->locations = current_token->location;
-
-      if (match(TokenType::IDENT)) {
-        stmt->name = expect(TokenType::IDENT)->value;
       } else {
-        expect(TokenType::IDENT);
-        if (match(TokenType::LEFTPAREN) || match(TokenType::LESS)) {}
-        else next();
-
+        stmt->dataType = nullptr;
       }
+
+      if (match(TokenType::EQUAL)) {
+        next();
+        stmt->expr = parse_expr();
+      }
+
+      skip_semicolon();
+    } else if (match(TokenType::FUNCT)) {
+      // MARK: Parse Function Declaration
+      next();
+
+      stmt->kind = StmtKind::FUNC_DECL;
+      stmt->location = current_token->location;
+
+      expect(TokenType::IDENT);
+      stmt->name = previous_token->value;
 
       if (match(TokenType::LESS)) {
         next();
-
         while (!match(TokenType::GREATER) && !match(TokenType::ENDOFFILE)) {
-          auto* generic = new Generic();
-          generic->name = expect(TokenType::IDENT)->value;
+          auto generic = std::make_unique<SonicType>();
+          auto name = expect(TokenType::IDENT)->value;
+
+          generic->location = previous_token->location;
+
           if (match(TokenType::COLON)) {
             next();
-            generic->type = parse_type();
+            generic->returnType = parse_type();
           }
-          stmt->genericType.push_back(generic);
+
+          stmt->genericParams.push_back(std::move(generic));
+
           if (!match(TokenType::COMMA)) break;
           next();
         }
-
         expect(TokenType::GREATER);
-
-        if (stmt->genericType.empty())
-          diag->report({
-            ErrorType::SYNTAX,
-            Severity::ERROR,
-            current_token->location,
-            "expected generic type",
-            "generic type cannot be empty"
-          });
       }
 
       expect(TokenType::LEFTPAREN);
+
       while (!match(TokenType::RIGHTPAREN) && !match(TokenType::ENDOFFILE)) {
-        bool isVariadic = false;
+        auto param = std::make_unique<FunctionParameter>();
+
         if (match(TokenType::VARIADIC)) {
           next();
-          isVariadic = true;
+          param->variadic = true;
         }
-        auto location = current_token->location;
-        std::string name = expect(TokenType::IDENT)->value;
-        expect(TokenType::COLON);
-        stmt->params.push_back(Params(
-          name,
-          parse_type(),
-          isVariadic,
-          location
-        ));
 
-        if (isVariadic) break;
+        param->name = expect(TokenType::IDENT)->value;
+        param->location = previous_token->location;
+
+        expect(TokenType::COLON);
+        param->type = parse_type();
+
         if (!match(TokenType::COMMA)) break;
         next();
       }
+
       expect(TokenType::RIGHTPAREN);
 
       if (match(TokenType::ARROW)) {
         next();
         stmt->returnType = parse_type();
       } else {
-        stmt->returnType = new Type();
+        stmt->returnType = std::make_unique<SonicType>();
         stmt->returnType->kind = TypeKind::VOID;
       }
 
       if (match(TokenType::LEFTBRACE)) {
-        stmt->body = parse_block();
-        stmt->isDefine = true;
+        next();
+
+        while(!match(TokenType::RIGHTBRACE) && !match(TokenType::ENDOFFILE)) {
+          stmt->body.push_back(parse_stmt());
+        }
+
+        expect(TokenType::RIGHTBRACE);
       } else {
-        stmt->isDeclare = true;
+        if (!stmt->isExtern) {
+          diag->report({
+            ErrorType::SYNTAX,
+            Severity::ERROR,
+            current_token->location,
+            "expected function body after function declaration",
+            "",
+            "example: {\n  // function body\n}"
+          });
+        }
         skip_semicolon();
       }
-
-      return stmt;
-    } else if (match(TokenType::LET)) {
-      next();
-      stmt->kind = StmtKind::VARDECL;
-      stmt->locations = current_token->location;
-      auto* identifier = expect(TokenType::IDENT);
-      if (!identifier) return stmt;
-      stmt->name = identifier->value;
-
-      if (match(TokenType::COLON)) {
-        next();
-        stmt->dataType = parse_type();
-      } else {
-        stmt->dataType = new Type();
-        stmt->dataType->kind = TypeKind::AUTO;
-      }
-
-      if (match(TokenType::EQUAL)) {
-        expect(TokenType::EQUAL);
-        stmt->value = parse_expr(0);
-        stmt->isDefine = true;
-      } else {
-        stmt->isDeclare = true;
-      }
-
-      skip_semicolon();
-      return stmt;
-    } else if (match(TokenType::IDENT)) {
-      stmt->locations = current_token->location;
-      stmt->name = expect(TokenType::IDENT)->value;
-      skip_semicolon();
-      return stmt;
-    } else if (match(TokenType::RETURN)) {
-      stmt->locations = current_token->location;
-      stmt->kind = StmtKind::RETURN;
-      next();
-      auto* value = parse_expr(0);
-
-      if (value) {
-        stmt->value = value;
-      } else {
-        stmt->value = nullptr;
-      }
-
-      skip_semicolon();
-      return stmt;
     } else {
       diag->report({
         ErrorType::SYNTAX,
         Severity::ERROR,
         current_token->location,
-        "Unexpected syntax '" + current_token->value + "'"
+        "unexpected syntax '" + current_token->value + "'"
       });
       next();
     }
 
     return stmt;
-  }
-
-  Stmt* Parser::parse_block() {
-    Stmt* block = new Stmt();
-    block->kind = StmtKind::BLOCK;
-    block->locations = current_token->location;
-    expect(TokenType::LEFTBRACE);
-
-    while (!match(TokenType::RIGHTBRACE) && !match(TokenType::ENDOFFILE)) {
-      block->children.push_back(parse_stmt());
-    }
-
-    if (match(TokenType::ENDOFFILE)) {
-      diag->report({
-        ErrorType::SYNTAX,
-        Severity::ERROR,
-        current_token->location,
-        "unexpected end of file, expected '}' to close block"
-      });
-      return block;
-    }
-
-    expect(TokenType::RIGHTBRACE);
-    return block;
   }
 
   int Parser::parse_precedence(TokenType t) {
@@ -445,8 +217,140 @@ namespace sonic::frontend {
     }
   }
 
-  Expr* Parser::parse_expr(int prec) {
-    Expr* left = parse_value();
+
+  std::unique_ptr<SonicStmt> Parser::parse_assignment() {
+
+    auto expr = std::make_unique<SonicExpr>();
+    expr->location = current_token->location;
+    expr->name = expect(TokenType::IDENT)->value;
+    expr->kind = ExprKind::IDENT;
+
+    auto stmt = std::make_unique<SonicStmt>();
+    stmt->kind = StmtKind::EXPR;
+
+    bool is_call = false;
+
+    while (true) {
+      if (match(TokenType::LEFTBRACKET)) {
+        next();
+        auto index = std::make_unique<SonicExpr>();
+        index->kind = ExprKind::INDEX;
+        index->location = current_token->location;
+        index->nested = expr->clone();
+        index->value = parse_expr()->value;
+        expect(TokenType::RIGHTBRACKET);
+
+        expr = std::move(index);
+      }
+
+      if (match(TokenType::EQUAL)) {
+        next();
+        stmt->kind = StmtKind::ASSIGN;
+        stmt->name = expr->name;
+        stmt->target = std::move(expr);
+        stmt->expr = parse_expr();
+        stmt->location = previous_token->location;
+        skip_semicolon();
+        return stmt;
+      } else if (match(TokenType::IS_EQUAL) || match(TokenType::NOT_EQUAL) ||
+                 match(TokenType::PLUS_EQUAL) || match(TokenType::MINUS_EQUAL) ||
+                 match(TokenType::STAR_EQUAL) || match(TokenType::DIV_EQUAL) ||
+                 match(TokenType::PERCENT_EQUAL) || match(TokenType::POWER_EQUAL)) {
+        next();
+        stmt->kind = StmtKind::ASSIGN;
+        stmt->target = expr->clone();
+        stmt->expr = std::make_unique<SonicExpr>();
+        stmt->expr->kind = ExprKind::BINARY;
+        stmt->expr->lhs = std::move(expr);
+        stmt->expr->rhs = parse_expr();
+        stmt->expr->op = previous_token->value;
+        skip_semicolon();
+        return stmt;
+      }
+
+      if (match(TokenType::LESS)) {
+        next();
+        auto generic = std::make_unique<SonicExpr>();
+        generic->location = previous_token->location;
+        generic->kind = ExprKind::CALL;
+        generic->callee = std::move(expr);
+
+        while (!match(TokenType::GREATER) && !match(TokenType::ENDOFFILE)) {
+          generic->genericTypes.push_back(parse_type());
+          if (match(TokenType::COMMA)) {
+            next();
+          } else break;
+        }
+        expect(TokenType::GREATER);
+
+        expect(TokenType::LEFTPAREN);
+        while (!match(TokenType::RIGHTPAREN) && !match(TokenType::ENDOFFILE)) {
+          generic->arguments.push_back(parse_expr());
+          if (match(TokenType::COMMA)) {
+            next();
+          } else break;
+        }
+
+        expect(TokenType::RIGHTPAREN);
+        expr = std::move(generic);
+        continue;
+      }
+
+      if (match(TokenType::LEFTPAREN)) {
+        next();
+        auto call = std::make_unique<SonicExpr>();
+        call->location = previous_token->location;
+        call->kind = ExprKind::CALL;
+        call->callee = std::move(expr);
+        call->kind = ExprKind::CALL;
+        while (!match(TokenType::RIGHTPAREN) && !match(TokenType::ENDOFFILE)) {
+          call->arguments.push_back(parse_expr());
+          if (match(TokenType::COMMA)) {
+            next();
+          } else break;
+        }
+
+        expect(TokenType::RIGHTPAREN);
+        expr = std::move(call);
+      }
+
+      if (match(TokenType::DOT)) {
+        next();
+        auto lookup = std::make_unique<SonicExpr>();
+        lookup->kind = ExprKind::MEMBER_ACCESS;
+        lookup->location = current_token->location;
+        lookup->value = expect(TokenType::IDENT)->value;
+        lookup->nested = std::move(expr);
+
+        expr = std::move(lookup);
+        continue;
+      }
+      else if (match(TokenType::COLON_COLON) && !is_call) {
+        next();
+        auto lookup_module = std::make_unique<SonicExpr>();
+        lookup_module->kind = ExprKind::SCOPE_ACCESS;
+        lookup_module->location = current_token->location;
+        lookup_module->value = expect(TokenType::IDENT)->value;
+        lookup_module->nested = std::move(expr);
+
+        expr = std::move(lookup_module);
+        continue;
+      }
+
+      break;
+    }
+
+    skip_semicolon();
+    stmt->expr = std::move(expr);
+    return stmt;
+  }
+
+  std::unique_ptr<SonicExpr> Parser::parse_expr() {
+    return parse_binop(0);
+  }
+
+  std::unique_ptr<SonicExpr> Parser::parse_binop(int prec) {
+    auto left = parse_value();
 
     for (;;) {
       int precedence = parse_precedence(current_token->type);
@@ -457,314 +361,184 @@ namespace sonic::frontend {
 
       next();
 
-      Expr* bin = new Expr();
+      auto bin = std::unique_ptr<SonicExpr>();
       bin->kind = ExprKind::BINARY;
-      bin->left = left;
-      bin->right = parse_expr(precedence + 1);
-      bin->binOp = stringToBinaryOp(op->value);
-      left = bin;
+      bin->lhs = left->clone();
+      bin->rhs = parse_binop(precedence + 1);
+      bin->op = op->value;
+      left = std::move(bin);
     }
 
     return left;
   }
 
-  Expr* Parser::parse_value() {
-    Expr* expr = new Expr();
-    expr->locations = current_token->location;
+  std::unique_ptr<SonicExpr> Parser::parse_value() {
+    auto expr = std::make_unique<SonicExpr>();
 
-    if (match(TokenType::LEFTPAREN)) {
+    if (match(TokenType::MINUS)) {
       next();
-      expr->exprValue = parse_expr(0);
-      expect(TokenType::RIGHTPAREN);
+      expr->kind = ExprKind::UNARY;
+      expr->op = previous_token->value;
+      expr->nested = parse_expr();
       return expr;
     }
 
     if (match(TokenType::NONE)) {
-      expr->kind = ExprKind::NONE;
-      expr->value = expect(TokenType::NONE)->value;
-      return expr;
-    }
-
-    if (match(TokenType::MINUS) || match(TokenType::PLUS) || match(TokenType::STAR) || match(TokenType::AMPERSAND)) {
-      expr->kind = ExprKind::UNARY;
-      expr->value = current_token->value;
-      expr->unOp = stringToUnaryOp(current_token->value);
       next();
-      expr->exprValue = parse_expr(0);
+
+      expr->value = std::move(previous_token->value);
+      expr->location = previous_token->location;
+      expr->kind = ExprKind::NONE;
+
+      return expr;
+    }
+    else if (match(TokenType::NUMBER)) {
+      next();
+
+      expr->value = std::move(previous_token->value);
+      expr->rawValue = expr->value;
+      expr->location = previous_token->location;
+      expr->kind = ExprKind::UNTYPED_LITERAL;
+
+      return expr;
+    }
+    else if (match(TokenType::TRUE) || match(TokenType::FALSE)) {
+      next();
+
+      expr->value = std::move(previous_token->value);
+      expr->location = previous_token->location;
+      expr->kind = ExprKind::BOOL;
+
+      return expr;
+    }
+    else if (match(TokenType::CHARLIT)) {
+      next();
+
+      expr->value = std::move(previous_token->value);
+      expr->location = previous_token->location;
+      expr->kind = ExprKind::CHAR;
+
+      return expr;
+    }
+    else if (match(TokenType::STRLIT)) {
+      next();
+
+      expr->value = std::move(previous_token->value);
+      expr->location = previous_token->location;
+      expr->kind = ExprKind::STRING;
+
       return expr;
     }
 
-    if (match(TokenType::NUMBER)) {
-      expr->kind = ExprKind::PRIMITIVE;
-      expr->value = expect(TokenType::NUMBER)->value;
-      expr->isSignedInteger = true;
-      expr->primitive = Primitive::I64;
-      return expr;
-    } else if (match(TokenType::STRLIT)) {
-      expr->kind = ExprKind::PRIMITIVE;
-      expr->value = expect(TokenType::STRLIT)->value;
-      expr->primitive = Primitive::STR;
-      return expr;
-    } else if (match(TokenType::CHAR)) {
-      expr->kind = ExprKind::PRIMITIVE;
-      expr->value = expect(TokenType::CHARLIT)->value;
-      expr->primitive = Primitive::CHAR;
-      return expr;
-    } else if (match(TokenType::IDENT)) {
-      expr->kind = ExprKind::IDENT;
-      expr->value = expect(TokenType::IDENT)->value;
-      expr = parse_identifiers(expr);
-      return expr;
-    } else if (match(TokenType::LEFTBRACE)) {
-      expr->kind = ExprKind::BLOCK;
-      expr->block = parse_block();
-      return expr;
-    } else if (match(TokenType::LEFTBRACKET)) {
-      return expr;
-    } else if (match(TokenType::TRUE) || match(TokenType::FALSE)) {
-      expr->kind = ExprKind::PRIMITIVE;
-      expr->value = expect(current_token->type)->value;
-      expr->primitive = Primitive::BOOL;
-      return expr;
+    if (match(TokenType::AMPERSAND) || match(TokenType::STAR)) {
+      next();
+      expr->kind = ExprKind::UNARY;
+      expr->op = previous_token->value;
+      if (match(TokenType::IDENT)) {
+        expr->nested = parse_identifiers();
+        return expr;
+      }
+
+      diag->report({
+        ErrorType::SYNTAX,
+        Severity::ERROR,
+        current_token->location,
+        "expected variable after '" + previous_token->value + "'"
+        "",
+        "example '" + previous_token->value + "x'"
+      });
+    }
+
+    if (match(TokenType::IDENT)) {
+      return parse_identifiers();
     }
 
     return nullptr;
   }
 
-  Stmt* Parser::parse_assignment(Stmt* stmt) {
-    Expr* expr = new Expr();
-    expr->locations = current_token->location;
-    expr->name = expect(TokenType::IDENT)->value;
+  std::unique_ptr<SonicExpr> Parser::parse_identifiers() {
+    auto expr = std::make_unique<SonicExpr>();
     expr->kind = ExprKind::IDENT;
+    expr->name = expect(TokenType::IDENT)->value;
+    expr->location = previous_token->location;
 
     bool is_call = false;
 
-    while (true) {
+    for (;;) {
+      if (match(TokenType::ENDOFFILE)) break;
+
+      if (match(TokenType::LESS)) {
+        next();
+        auto generic = std::make_unique<SonicExpr>();
+        generic->location = previous_token->location;
+        generic->kind = ExprKind::CALL;
+        generic->callee = std::move(expr);
+
+        while (!match(TokenType::GREATER) && !match(TokenType::ENDOFFILE)) {
+          generic->genericTypes.push_back(parse_type());
+          if (match(TokenType::COMMA)) {
+            next();
+          } else break;
+        }
+        expect(TokenType::GREATER);
+
+        expect(TokenType::LEFTPAREN);
+        while (!match(TokenType::RIGHTPAREN) && !match(TokenType::ENDOFFILE)) {
+          generic->arguments.push_back(parse_expr());
+          if (!match(TokenType::COMMA)) break;
+          next();
+        }
+
+        expect(TokenType::RIGHTPAREN);
+        expr = std::move(generic);
+        continue;
+      } else if (match(TokenType::LEFTPAREN)) {
+        next();
+        auto call = std::make_unique<SonicExpr>();
+        call->location = previous_token->location;
+        call->kind = ExprKind::CALL;
+        call->callee = std::move(expr);
+        while (!match(TokenType::RIGHTPAREN) && !match(TokenType::ENDOFFILE)) {
+          call->arguments.push_back(parse_expr());
+          if (!match(TokenType::COMMA)) break;
+          next();
+        }
+
+        expect(TokenType::RIGHTPAREN);
+        expr = std::move(call);
+      }
+
       if (match(TokenType::LEFTBRACKET)) {
         next();
-        auto* index = new Expr();
+
+        auto index = std::make_unique<SonicExpr>();
         index->kind = ExprKind::INDEX;
-        index->locations = current_token->location;
-        index->object = expr;
-        index->value = parse_expr(0)->value;
+        index->nested = std::move(expr);
+        index->index = parse_expr();
         expect(TokenType::RIGHTBRACKET);
-
-        expr = index;
-
-        if (match(TokenType::EQUAL)) {
-          next();
-          stmt->kind = StmtKind::ASSIGN;
-          stmt->object = expr;
-          stmt->value = parse_expr(0);
-          stmt->locations = previous_token->location;
-          stmt->name = expr->name;
-          skip_semicolon();
-          return stmt;
-        } else if (match(TokenType::IS_EQUAL) || match(TokenType::NOT_EQUAL) ||
-                  match(TokenType::PLUS_EQUAL) || match(TokenType::MINUS_EQUAL) ||
-                  match(TokenType::STAR_EQUAL) || match(TokenType::DIV_EQUAL) ||
-                  match(TokenType::PERCENT_EQUAL) || match(TokenType::POWER_EQUAL)) {
-          next();
-          stmt->kind = StmtKind::ASSIGN;
-          stmt->object = expr;
-          stmt->value = new Expr();
-          stmt->value->kind = ExprKind::BINARY;
-          stmt->value->left = expr;
-          stmt->value->right = parse_expr(0);
-          stmt->value->binOp = stringToBinaryOp(previous_token->value);
-          skip_semicolon();
-          return stmt;
-        } else if (match(TokenType::DOT)) {
-          continue;
-        } else {
-          diag->report({
-            ErrorType::SYNTAX,
-            Severity::ERROR,
-            current_token->location,
-            "expected assignment operator after index expression",
-            "",
-            ""
-          });
-          break;
-        }
-      }
-
-      if (match(TokenType::EQUAL)) {
-        next();
-        stmt->kind = StmtKind::ASSIGN;
-        stmt->object = expr;
-        stmt->value = parse_expr(0);
-        stmt->locations = previous_token->location;
-        stmt->name = expr->name;
-        skip_semicolon();
-        return stmt;
-      } else if (match(TokenType::IS_EQUAL) || match(TokenType::NOT_EQUAL) ||
-                 match(TokenType::PLUS_EQUAL) || match(TokenType::MINUS_EQUAL) ||
-                 match(TokenType::STAR_EQUAL) || match(TokenType::DIV_EQUAL) ||
-                 match(TokenType::PERCENT_EQUAL) || match(TokenType::POWER_EQUAL)) {
-        next();
-        stmt->kind = StmtKind::ASSIGN;
-        stmt->object = expr;
-        stmt->value = new Expr();
-        stmt->value->kind = ExprKind::BINARY;
-        stmt->value->left = expr;
-        stmt->value->right = parse_expr(0);
-        stmt->value->binOp = stringToBinaryOp(previous_token->value);
-        skip_semicolon();
-        return stmt;
-      }
-
-      if (match(TokenType::LESS)) {
-        next();
-        auto* generic = new Expr();
-        generic->locations = previous_token->location;
-        generic->kind = ExprKind::CALL;
-        generic->callee = expr;
-
-        while (!match(TokenType::GREATER) && !match(TokenType::ENDOFFILE)) {
-          generic->genericType.push_back(parse_type());
-          if (match(TokenType::COMMA)) {
-            next();
-          } else break;
-        }
-        expect(TokenType::GREATER);
-
-        expect(TokenType::LEFTPAREN);
-        while (!match(TokenType::RIGHTPAREN) && !match(TokenType::ENDOFFILE)) {
-          generic->args.push_back(parse_expr(0));
-          if (match(TokenType::COMMA)) {
-            next();
-          } else break;
-        }
-
-        expect(TokenType::RIGHTPAREN);
-        expr = generic;
-        continue;
-      }
-
-      if (match(TokenType::LEFTPAREN)) {
-        next();
-        auto* call = new Expr();
-        call->locations = previous_token->location;
-        call->kind = ExprKind::CALL;
-        call->callee = expr;
-        call->kind = ExprKind::CALL;
-        while (!match(TokenType::RIGHTPAREN) && !match(TokenType::ENDOFFILE)) {
-          call->args.push_back(parse_expr(0));
-          if (match(TokenType::COMMA)) {
-            next();
-          } else break;
-        }
-
-        expect(TokenType::RIGHTPAREN);
-        expr = call;
+        expr = std::move(index);
       }
 
       if (match(TokenType::DOT)) {
         next();
-        auto* lookup = new Expr();
-        lookup->kind = ExprKind::LOOKUP;
-        lookup->locations = current_token->location;
+        auto lookup = std::make_unique<SonicExpr>();
+        lookup->kind = ExprKind::MEMBER_ACCESS;
+        lookup->location = current_token->location;
         lookup->value = expect(TokenType::IDENT)->value;
-        lookup->object = expr;
+        lookup->nested = std::move(expr);
 
-        expr = lookup;
+        expr = std::move(lookup);
         continue;
       }
       else if (match(TokenType::COLON_COLON) && !is_call) {
         next();
-        auto* lookup_module = new Expr();
-        lookup_module->kind = ExprKind::LOOKUP_MODULE;
-        lookup_module->locations = current_token->location;
+        auto lookup_module = std::make_unique<SonicExpr>();
+        lookup_module->kind = ExprKind::SCOPE_ACCESS;
+        lookup_module->location = current_token->location;
         lookup_module->value = expect(TokenType::IDENT)->value;
-        lookup_module->object = expr;
+        lookup_module->nested = std::move(expr);
 
-        expr = lookup_module;
-
-        continue;
-      }
-
-      break;
-    }
-
-    skip_semicolon();
-    stmt->value = expr;
-    return stmt;
-  }
-
-  Expr* Parser::parse_identifiers(Expr* e) {
-    Expr* expr = e;
-
-    bool is_call = false;
-
-    while (true) {
-      if (match(TokenType::LESS)) {
-        next();
-        auto* generic = new Expr();
-        generic->locations = previous_token->location;
-        generic->kind = ExprKind::CALL;
-        generic->callee = expr;
-
-        while (!match(TokenType::GREATER) && !match(TokenType::ENDOFFILE)) {
-          generic->genericType.push_back(parse_type());
-          if (match(TokenType::COMMA)) {
-            next();
-          } else break;
-        }
-        expect(TokenType::GREATER);
-
-        expect(TokenType::LEFTPAREN);
-        while (!match(TokenType::RIGHTPAREN) && !match(TokenType::ENDOFFILE)) {
-          generic->args.push_back(parse_expr(0));
-          if (match(TokenType::COMMA)) {
-            next();
-          } else break;
-        }
-
-        expect(TokenType::RIGHTPAREN);
-        expr = generic;
-        continue;
-      }
-
-      if (match(TokenType::LEFTPAREN)) {
-        next();
-        auto* call = new Expr();
-        call->locations = previous_token->location;
-        call->kind = ExprKind::CALL;
-        call->callee = expr;
-        call->kind = ExprKind::CALL;
-        while (!match(TokenType::RIGHTPAREN) && !match(TokenType::ENDOFFILE)) {
-          call->args.push_back(parse_expr(0));
-          if (match(TokenType::COMMA)) {
-            next();
-          } else break;
-        }
-
-        expect(TokenType::RIGHTPAREN);
-        expr = call;
-      }
-
-      if (match(TokenType::DOT)) {
-        next();
-        auto* lookup = new Expr();
-        lookup->kind = ExprKind::LOOKUP;
-        lookup->locations = current_token->location;
-        lookup->value = expect(TokenType::IDENT)->value;
-        lookup->object = expr;
-
-        expr = lookup;
-        continue;
-      }
-      else if (match(TokenType::COLON_COLON) && !is_call) {
-        next();
-        auto* lookup_module = new Expr();
-        lookup_module->kind = ExprKind::LOOKUP_MODULE;
-        lookup_module->locations = current_token->location;
-        lookup_module->value = expect(TokenType::IDENT)->value;
-        lookup_module->object = expr;
-
-        expr = lookup_module;
-
+        expr = std::move(lookup_module);
         continue;
       }
 
@@ -774,157 +548,80 @@ namespace sonic::frontend {
     return expr;
   }
 
-  Primitive tokenTypeToPrimitive(TokenType t) {
-    switch (t) {
-      case TokenType::U32:
-      case TokenType::I32:
-        return Primitive::I32;
-      case TokenType::U64:
-      case TokenType::I64:
-        return Primitive::I64;
-      case TokenType::U128:
-      case TokenType::I128:
-        return Primitive::I128;
-      case TokenType::F32:
-        return Primitive::F32;
-      case TokenType::F64:
-        return Primitive::F64;
-      case TokenType::CHAR:
-        return Primitive::CHAR;
-      case TokenType::STR:
-        return Primitive::STR;
-      case TokenType::BOOL:
-        return Primitive::BOOL;
-      default:
-        return Primitive::UNKNOWN;
-    }
-  }
+  std::unique_ptr<SonicType> Parser::parse_type() {
+    auto type = std::make_unique<SonicType>();
+    type->location = current_token->location;
 
-  Type* Parser::parse_type() {
-    Type* type = new Type();
-    type->locations = current_token->location;
-    type->isNullable = false;
-
-    if (match(TokenType::I32) || match(TokenType::I64)
-      || match(TokenType::I128) || match(TokenType::U32)
-      || match(TokenType::U64) || match(TokenType::U128)
-      || match(TokenType::F32) || match(TokenType::F64)
-      || match(TokenType::CHAR) || match(TokenType::STR)
-      || match(TokenType::BOOL)) {
-      type->kind = TypeKind::PRIMITIVE;
-      type->primitive = tokenTypeToPrimitive(current_token->type);
-      type->isSignedInteger = type->primitive == Primitive::I32 || type->primitive == Primitive::I64 || type->primitive == Primitive::I128;
+    if (match(TokenType::I32)) {
       next();
-
-      if (match(TokenType::QUESTION)) {
-        type->isNullable = true;
-        next();
-      }
-
-      return type;
-    } else if (match(TokenType::VOID)) {
-      type->kind = TypeKind::VOID;
+      type->kind = TypeKind::I32;
+    } else if (match(TokenType::I64)) {
       next();
-
-      if (match(TokenType::QUESTION)) {
-        type->isNullable = true;
-        next();
-      }
-
-      return type;
-    } else if (match(TokenType::ANY)) {
-      type->kind = TypeKind::ANY;
+      type->kind = TypeKind::I64;
+    } else if (match(TokenType::I128)) {
       next();
-
-      if (match(TokenType::QUESTION)) {
-        type->isNullable = true;
-        next();
-      }
-
-      return type;
-    } else if (match(TokenType::FUNCT)) {
-      type->kind = TypeKind::FUNC;
-
-      if (match(TokenType::QUESTION)) {
-        type->isNullable = true;
-        next();
-      }
-
-      return type;
+      type->kind = TypeKind::I128;
+    } else if (match(TokenType::F32)) {
+      next();
+      type->kind = TypeKind::F32;
+    } else if (match(TokenType::F64)) {
+      next();
+      type->kind = TypeKind::F64;
+    } else if (match(TokenType::CHAR)) {
+      next();
+      type->kind = TypeKind::CHAR;
+    } else if (match(TokenType::STR)) {
+      next();
+      type->kind = TypeKind::STRING;
+    } else if (match(TokenType::BOOL)) {
+      next();
+      type->kind = TypeKind::BOOL;
     } else if (match(TokenType::IDENT)) {
-      type->kind = TypeKind::IDENT;
-      type->name = current_token->value;
       next();
+      type->kind = TypeKind::IDENT;
+      type->name = previous_token->value;
 
-      while (true) {
-
+      for (;;) {
         if (match(TokenType::LESS)) {
           next();
-          while (!match(TokenType::GREATER)) {
-            type->genericType.push_back(parse_type());
-            if (match(TokenType::COMMA)) {
-              next();
-            } else break;
+          while (!match(TokenType::GREATER) && !match(TokenType::ENDOFFILE)) {
+            type->params.push_back(parse_type());
+            if (!match(TokenType::COMMA)) break;
+            next();
           }
 
           expect(TokenType::GREATER);
-
-          if (type->genericType.empty()) {
-            diag->report({
-              ErrorType::SYNTAX,
-              Severity::ERROR,
-              current_token->location,
-              "expected type after '<'",
-              "",
-              ""
-            });
-          }
           break;
         }
 
         if (match(TokenType::COLON_COLON)) {
           next();
+          expect(TokenType::IDENT);
 
-          if (match(TokenType::IDENT)) {
-            auto* lookup_type = new Type();
-            lookup_type->kind = TypeKind::LOOKUP;
-            lookup_type->name = current_token->value;
-            lookup_type->locations = current_token->location;
-            lookup_type->object = type;
-            next();
-            type = lookup_type;
-          } else {
-            diag->report({
-              ErrorType::SYNTAX,
-              Severity::ERROR,
-              current_token->location,
-              "expected identifier after '::'",
-              "",
-              ""
-            });
-          }
+          auto nested = std::make_unique<SonicType>();
+          nested->kind = TypeKind::SCOPE_ACCESS;
+          nested->name = previous_token->value;
+          nested->location = previous_token->location;
+          nested->scope = std::move(type);
+
+          type = std::move(nested);
+          continue;
         }
 
-
-        if (match(TokenType::QUESTION)) {
-          type->isNullable = true;
-          next();
-        }
-
-        return type;
+        break;
       }
-
-      return nullptr;
     }
 
-    diag->report({
-      ErrorType::SYNTAX,
-      Severity::ERROR,
-      current_token->location,
-      "expected type, but got '" + tokenTypeToValue(current_token->type) + "'",
-      "",
-      ""
-    });
+    if (match(TokenType::QUESTION)) {
+      next();
+      type->isNullable = true;
+    } else if (match(TokenType::STAR) || match(TokenType::AMPERSAND)) {
+      type->isReference = match(TokenType::AMPERSAND);
+      type->isPointer = match(TokenType::STAR);
+      if (type->isPointer)
+        type->isNullable = true;
+      next();
+    }
 
     return type;
   }
@@ -962,5 +659,4 @@ namespace sonic::frontend {
     previous_token = current_token;
     current_token = new Token(lexer->next_token());
   }
-
 }

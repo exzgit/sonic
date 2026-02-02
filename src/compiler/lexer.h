@@ -1,10 +1,12 @@
 #pragma once
 
+// c++ library
 #include <string>
 #include <vector>
+
+// local header
 #include "token.h"
 #include "diagnostics.h"
-
 
 namespace sonic::frontend {
 

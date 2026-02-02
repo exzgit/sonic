@@ -1,7 +1,10 @@
-#include "io.h"
+// c++ library
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+
+// local header
+#include "io.h"
 
 namespace fs = std::filesystem;
 
@@ -102,4 +105,7 @@ namespace sonic::io {
     return path.substr(0, pos);
   }
 
+  std::string getFullPath(const std::string& path) {
+    return std::filesystem::absolute(path).string();
+  }
 }

@@ -1,15 +1,16 @@
+// c++ library
 #include <iostream>
 #include <string>
 
+// local header
 #include "../core/config.h"
 #include "../core/startup.h"
 #include "io.h"
 #include "../compiler/lexer.h"
 #include "../compiler/parser.h"
-#include "semantic.h"
-#include "../compiler/ast/debug.h"
-#include "../compiler/symbol.h"
 #include "../compiler/diagnostics.h"
+#include "../compiler/semantic.h"
+#include "../compiler/symbol.h"
 
 namespace cfg = sonic::config;
 using namespace sonic::frontend;
@@ -81,84 +82,97 @@ void check_arguments(int argc, char* argv[]) {
     if (arg == "new") {
       if (i + 1 >= argc) {
         std::cerr << "Missing project name\n";
-        std::exit(1);
+        std::exit(0);
       }
 
       sonic::startup::generate_project_folder(argv[i + 1]);
       std::exit(0);
     }
-
     // ===== BUILD FLAGS =====
-    if (arg == "compile") {
+    else if (arg == "compile") {
       cfg::is_compiled = true;
+      sonic::config::project_path = "src/main.sn";
       continue;
     }
-
-    if (arg == "run") {
-      cfg::is_running = true;
-      continue;
-    }
-
-    if (arg == "--debug") {
+    else if (arg == "--debug") {
       cfg::runtime_debug = true;   // override compile-time
       continue;
     }
-
-    if (arg == "--release") {
+    else if (arg == "--release") {
       cfg::runtime_release = true;
       continue;
     }
-
-    if (arg == "--no-opt") {
+    else if (arg == "--no-opt") {
       cfg::runtime_optimized = false;
+      cfg::optimizer_level = sonic::config::OptLevel::NO;
       continue;
+    }
+    else if (arg == "-O2") cfg::optimizer_level = sonic::config::OptLevel::O2;
+    else if (arg == "-O3") cfg::optimizer_level = sonic::config::OptLevel::O3;
+    else if (arg == "-Ofast") cfg::optimizer_level = sonic::config::OptLevel::OFAST;
+    else {
+      if (i < 2) {
+        std::cerr << "\033[31m(error)\033[0m " << "unknown arguments '" << arg << "'\n";
+        std::exit(0);
+      }
+
+      if (sonic::io::is_exists(arg) && sonic::io::is_directory(arg)) {
+        sonic::config::project_path = arg + "/src/main.sn";
+      } else if (sonic::io::is_exists(arg) && sonic::io::is_file(arg)) {
+        sonic::config::project_path = arg;
+      } else {
+        std::cerr << "\033[31m(error)\033[0m " << "unknown arguments '" << arg << "'\n";
+        std::exit(0);
+      }
     }
   }
 }
 
 using namespace sonic::io;
 
+void compile_project();
+void run_project();
+
 int main(int argc, char* argv[]) {
-  // check_arguments(argc, argv);
+  check_arguments(argc, argv);
 
-  // if (cfg::is_compiled) compile_project();
-  // if (cfg::is_running)  run_project();
+  if (cfg::is_compiled) compile_project();
 
-  std::string f = argv[1];
+  return 0;
+}
 
-  std::cout << "File: " << f << "\n";
+void compile_project() {
+  std::string f = sonic::config::project_path;
 
   std::string content(read_file(f));
 
   if (content.empty()) {
     std::cerr << "\033[31m(error)\033[0m file '" << f << "' is empty or cannot be read.\n";
-    return 1;
+    return;
   }
 
   sonic::startup::setProjectRoot(f);
 
   DiagnosticEngine diag;
-  sonic::frontend::Lexer lexer(content, cfg::project_root + "/" + f);
+  sonic::frontend::Lexer lexer(content, f);
   lexer.diag = &diag;
-  sonic::frontend::Parser parser(cfg::project_root + "/" + f, &lexer);
+  sonic::frontend::Parser parser(f, &lexer);
   parser.diag = &diag;
-  auto* program = parser.parse();
+  auto program = parser.parse();
 
-  // sonic::frontend::ASTPrinter printer;
-  // printer.print_stmt(program);
+  if (program) {
+    std::cout << "|--| DEBUG AST |--|\n";
+    std::cout << "===================\n";
+    std::cout << program->to_string(0) << "\n";
+  }
 
-  Symbol* universeSymbol = new Symbol();
-  universeSymbol->name = "__universe__";
-  universeSymbol->scopeLevel = GLOBAL_SCOPE;
-  universeSymbol->table = new SymbolTable();
-
-  sonic::frontend::SemanticAnalyzer analyzer(universeSymbol);
+  auto symbols = std::make_unique<Symbol>();
+  SemanticAnalyzer analyzer(symbols.get());
   analyzer.diag = &diag;
-  analyzer.analyze(program);
-  std::cout << "DIAG SIZE: " << analyzer.diag->size() << "\n";
-  analyzer.diag->flush();
+  analyzer.analyze(program->clone());
+  diag.flush();
+}
 
-  // printSymbol(universeSymbol, 0);
+void run_project() {
 
-  return 0;
 }

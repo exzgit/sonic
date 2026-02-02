@@ -1,12 +1,15 @@
 #pragma once
 
+// c++ library
 #include <string>
+#include <memory>
+
+// local headers
 #include "lexer.h"
 #include "token.h"
 #include "diagnostics.h"
-#include "ast/stmt.h"
-#include "ast/expr.h"
-#include "ast/type.h"
+#include "ast.h"
+
 
 namespace sonic::frontend {
   class Parser {
@@ -14,7 +17,7 @@ namespace sonic::frontend {
     Parser(const std::string& filename, Lexer* lexer);
     ~Parser() = default;
 
-    Stmt* parse();
+    std::unique_ptr<SonicStmt> parse();
 
     DiagnosticEngine* diag = nullptr;
   private:
@@ -28,18 +31,19 @@ namespace sonic::frontend {
     bool is_extern = false;
 
   private:
-    Stmt* parse_stmt();
-    Type* parse_type();
-    Stmt* parse_block();
-    Expr* parse_expr(int prec);
-    Expr* parse_value();
-    Expr* parse_identifiers(Expr* e);
-    Stmt* parse_assignment(Stmt* stmt);
+    std::unique_ptr<SonicStmt> parse_stmt();
+    std::unique_ptr<SonicStmt> parse_assignment();
+
+    std::unique_ptr<SonicExpr> parse_expr();
+    std::unique_ptr<SonicExpr> parse_binop(int prec);
+    std::unique_ptr<SonicExpr> parse_value();
+    std::unique_ptr<SonicExpr> parse_identifiers();
+
+    std::unique_ptr<SonicType> parse_type();
 
     void skip_semicolon();
 
     int parse_precedence(TokenType t);
-
 
     bool match(TokenType type);
 

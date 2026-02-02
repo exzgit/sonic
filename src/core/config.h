@@ -1,32 +1,27 @@
 #ifndef SONIC_CONFIG_H
 #define SONIC_CONFIG_H
 
+// c++ library
 #include <string>
 
 namespace sonic::config {
 
   // ===============================
-  // Compile-time build config
-  // ===============================
-  #ifdef NDEBUG
-    constexpr bool BUILD_DEBUG    = false;
-    constexpr bool BUILD_RELEASE  = true;
-    constexpr bool BUILD_OPTIMIZED = true;
-  #else
-    constexpr bool BUILD_DEBUG    = true;
-    constexpr bool BUILD_RELEASE  = false;
-    constexpr bool BUILD_OPTIMIZED = false;
-  #endif
-
-  // ===============================
   // Runtime flags (CLI overridable)
   // ===============================
-  inline bool runtime_debug     = BUILD_DEBUG;
-  inline bool runtime_release   = BUILD_RELEASE;
-  inline bool runtime_optimized = BUILD_OPTIMIZED;
+  inline bool runtime_debug     = false;
+  inline bool runtime_release   = false;
+  inline bool runtime_optimized = true;
 
   inline bool is_compiled = false;
-  inline bool is_running  = false;
+
+  enum OptLevel {
+    NO,
+    O2,
+    O3,
+    OFAST,
+  };
+  inline OptLevel optimizer_level = OptLevel::O2;
 
   // ===============================
   // Runtime project state

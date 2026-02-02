@@ -1,0 +1,16 @@
+
+
+// public function
+public func main() {
+
+}
+
+// genericType function
+func cast<T>(a: T) {
+
+}
+
+// argument variadic
+func print(...args: str) {
+
+}

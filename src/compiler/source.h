@@ -1,5 +1,6 @@
 #pragma once
 
+// c++ library
 #include <string>
 #include <cstdint>
 #include <vector>
@@ -59,7 +60,11 @@ struct SourceLocation {
       start(column),
       end(column + 1) {}
 
+  SourceLocation clone() const {
+    return SourceLocation(path, lines, raw_value, line, column, offset);
+  }
+
   std::string toString() const {
-    return path + ":" + std::to_string(line) + ":" + std::to_string(start);
+    return path + ":" + std::to_string(line) + ":" + std::to_string(end - 1);
   }
 };

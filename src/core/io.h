@@ -1,5 +1,6 @@
 #pragma once
 
+// c++ library
 #include <string>
 
 using namespace std;
@@ -18,4 +19,5 @@ namespace sonic::io {
   std::string getPathWithoutExtension(const std::string& path);
   std::string getFileNameWithoutExt(const std::string& path);
   std::string getPathWithoutFile(const std::string& path);
+  std::string getFullPath(const std::string& path);
 }
