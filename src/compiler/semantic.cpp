@@ -106,6 +106,7 @@ namespace sonic::frontend {
             if (funcSym->variadic_) break;
           }
         }
+
         symbols->declare(funcSym);
 
         break;
@@ -334,6 +335,8 @@ namespace sonic::frontend {
           }
 
           symbols->declare(varSym);
+        } else {
+          symbols->declare(varSym);
         }
       }
     }
@@ -478,6 +481,8 @@ namespace sonic::frontend {
             }
           }
 
+          expr->resolvedType = expr->nested->resolvedType->clone();
+          expr->resolvedType->location = expr->location;
           expr->resolvedType = sym->type_->clone();
         } else {
           analyze_expression(expr->callee.get());
@@ -499,7 +504,7 @@ namespace sonic::frontend {
     sym->scopeLevel = scopeLevel;
     sym->name_ = name;
     sym->parent_ = symbols;
-    sym->mangleName_ = startup::pathToNamespace(symbols->name_) + "@" + name;
+    sym->mangleName_ = (name != "main" ? startup::pathToNamespace(symbols->name_) + "." + name : name);
     sym->offset = offset;
     sym->depth = depth;
 
@@ -513,9 +518,9 @@ namespace sonic::frontend {
     sym->name_ = name;
     sym->parent_ = symbols;
     if (symbols->kind == SymbolKind::NAMESPACE) {
-      sym->mangleName_ = startup::pathToNamespace(filename) + "@" + name;
+      sym->mangleName_ = startup::pathToNamespace(filename) + "." + name;
     } else {
-      sym->mangleName_ = startup::pathToNamespace(filename) + "@" + symbols->name_ + "_" + name;
+      sym->mangleName_ = startup::pathToNamespace(filename) + "." + symbols->name_ + "_" + name;
     }
     sym->offset = offset;
     sym->depth = depth;

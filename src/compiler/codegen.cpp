@@ -2,7 +2,9 @@
 #include "../core/config.h"
 
 #include <iostream>
+#include <llvm/ADT/Twine.h>
 #include <llvm/CodeGen/MachineBasicBlock.h>
+#include <llvm/IR/Constants.h>
 #include <llvm/IR/DerivedTypes.h>
 #include <llvm/IR/Module.h>
 #include <llvm/IR/Type.h>
@@ -18,9 +20,12 @@
 #include <llvm/Support/FileSystem.h>
 #include <llvm/Bitcode/BitcodeWriter.h>
 #include <llvm/Support/raw_ostream.h>
+#include <vector>
 
 #include "../core/io.h"
+#include "ast.h"
 #include "startup.h"
+#include "../core/target_info.h"
 
 namespace cfg = sonic::config;
 
@@ -33,6 +38,13 @@ namespace sonic::backend {
 
     if (cfg::target_platform.empty()) {
       cfg::target_platform = llvm::sys::getDefaultTargetTriple();
+    }
+
+    std::string cpu;
+    if (cfg::target_platform == llvm::sys::getDefaultTargetTriple()) {
+        cpu = llvm::sys::getHostCPUName();
+    } else {
+        cpu = target_cpu(cfg::target_platform);
     }
 
     llvm::Triple triple(cfg::target_platform);
@@ -48,7 +60,6 @@ namespace sonic::backend {
     }
 
     llvm::TargetOptions opt;
-    auto cpu = llvm::sys::getHostCPUName();
     auto features = "";
 
     targetMachine = target->createTargetMachine(
@@ -81,7 +92,7 @@ namespace sonic::backend {
     }
 
     llvm::WriteBitcodeToFile(*module, dest);
-    dest.flush(); // pastikan ditulis ke disk
+    dest.flush();
   }
 
   void SonicCodegen::saveLLReadable(const std::string& path) {
@@ -108,7 +119,6 @@ namespace sonic::backend {
     switch(stmt->kind) {
       case StmtKind::PROGRAM: {
         auto progSym = symbols->lookup_local(stmt->name);
-        std::cout << "name: " << stmt->name << "\n";
         if (!progSym) return;
 
         auto temp = symbols;
@@ -127,20 +137,106 @@ namespace sonic::backend {
       }
       case StmtKind::FUNC_DECL: {
         auto funcSym = symbols->lookup_local(stmt->name);
+
         if (!funcSym) return;
 
-        // auto temp = symbols;
-        // symbols = funcSym;
+        auto temp = symbols;
+        symbols = funcSym;
 
-        // symbols = temp;
+        std::vector<llvm::Type*> paramTypes;
+        for (auto& param : funcSym->params_) {
+          paramTypes.push_back(mapping_type(param));
+        }
+
+        llvm::FunctionType* funcType = llvm::FunctionType::get(mapping_type(funcSym->type_), paramTypes, funcSym->variadic_);
+        llvm::Function* function = llvm::Function::Create(
+          funcType,
+          funcSym->public_ ? llvm::Function::ExternalLinkage : llvm::Function::InternalLinkage,
+          llvm::Twine(funcSym->extern_ ? funcSym->name_ : funcSym->mangleName_),
+          module.get()
+        );
+
+        if (!stmt->isExtern) {
+          llvm::BasicBlock* entry = llvm::BasicBlock::Create(context, getEntryLabel(), function);
+          builder->SetInsertPoint(entry);
+
+          for (auto& child : stmt->body) {
+            generate_statement(child.get());
+          }
+
+          llvm::Type* retType = function->getReturnType();
+
+          if (!entry->getTerminator()) {
+              if (retType->isIntegerTy()) {
+                  // i1, i8, i32, i64, i128 dll.
+                  builder->CreateRet(llvm::ConstantInt::get(retType, 0));
+              } else if (retType->isFloatingPointTy()) {
+                  // float / double / f16 / f128
+                  builder->CreateRet(llvm::ConstantFP::get(retType, 0.0));
+              } else if (retType->isPointerTy()) {
+                  // bisa string, char*, struct*, dll.
+                  builder->CreateRet(llvm::ConstantPointerNull::get(
+                      llvm::cast<llvm::PointerType>(retType)
+                  ));
+              } else if (retType->isVoidTy()) {
+                  builder->CreateRetVoid();
+              } else {
+                  // fallback: default void return
+                  builder->CreateRetVoid();
+              }
+          }
+        }
+
+        symbols = temp;
+        break;
+      }
+      case StmtKind::VAR_DECL: {
+        auto varSym = symbols->lookup(stmt->name);
+        if (!varSym) return;
+
+        llvm::Type* llvmType = mapping_type(varSym->type_);
+
+        llvm::Value* allocaVal = builder->CreateAlloca(llvmType, nullptr, varSym->name_);
+
+        // simpan pointer ke symbol untuk digunakan di load/store
+        varSym->llvmValue = allocaVal;
+
+        if (stmt->expr) {
+            llvm::Value* initVal = generate_expression(stmt->expr.get());
+            builder->CreateStore(initVal, allocaVal);
+        }
         break;
       }
       default: return;
     }
   }
 
-  void SonicCodegen::generate_expression(SonicExpr* expr) {
+  llvm::Value* SonicCodegen::generate_expression(SonicExpr* expr) {
+    if (!expr || !expr->resolvedType) return nullptr;
 
+    switch (expr->kind) {
+      case ExprKind::INT:
+        return llvm::ConstantInt::get(mapping_type(expr->resolvedType.get()), std::stoll(expr->value));
+      case ExprKind::FLOAT:
+        return llvm::ConstantFP::get(mapping_type(expr->resolvedType.get()), std::stod(expr->value));
+      case ExprKind::STRING:
+        return builder->CreateGlobalStringPtr(expr->value);
+      case ExprKind::CHAR:
+        return llvm::ConstantInt::get(mapping_type(expr->resolvedType.get()), std::stoll(expr->value));
+      case ExprKind::BOOL:
+        return llvm::ConstantInt::get(mapping_type(expr->resolvedType.get()), expr->value == "true" ? 1 : 0);
+      case ExprKind::IDENT: {
+        auto varSym = symbols->lookup(expr->name);
+        assert(varSym && "Undefined variable in codegen");
+
+        llvm::Value* ptr = varSym->llvmValue;
+        assert(ptr && "Variable llvmValue is null");
+
+        return builder->CreateLoad(mapping_type(varSym->type_), ptr, expr->name);
+      }
+      default:
+        return nullptr;
+    }
   }
 
   llvm::Type* SonicCodegen::mapping_type(SonicType* type) {

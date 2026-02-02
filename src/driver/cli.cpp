@@ -100,6 +100,16 @@ void check_arguments(int argc, char* argv[]) {
       cfg::runtime_debug = true;   // override compile-time
       continue;
     }
+    else if (arg == "--target") {
+      if (i + 1 >= argc) {
+        std::cerr << "Missing target triple\n";
+        std::exit(0);
+      }
+
+      cfg::target_platform = argv[i + 1];
+      i++;
+      continue;
+    }
     else if (arg == "--release") {
       cfg::runtime_release = true;
       continue;

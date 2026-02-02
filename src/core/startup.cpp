@@ -13,7 +13,8 @@ namespace fs = std::filesystem;
 namespace sonic::startup {
   void generate_project_folder(const string& project_name) {
     config::project_name = project_name;
-    config::target_platform = target_triple();
+    if (config::target_platform.empty())
+      config::target_platform = target_triple();
 
     if (fs::exists(project_name)) {
       std::cerr

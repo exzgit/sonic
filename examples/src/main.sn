@@ -3,5 +3,5 @@ func cast(i: i128) -> i64 {}
 
 func main() {
   let a: i128 = 1;
-  let b: i64* = &a;
+  let b: i128 = a;
 }

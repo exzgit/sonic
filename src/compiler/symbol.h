@@ -2,6 +2,7 @@
 
 // c++ library
 #include <cstdint>
+#include <llvm/IR/Value.h>
 #include <string>
 #include <memory>
 #include <unordered_map>
@@ -58,6 +59,8 @@ namespace sonic::frontend {
     bool extern_            = false;
     Mutability mutability_  = Mutability::DEFAULT;
     bool public_            = false;
+
+    llvm::Value* llvmValue = nullptr;
 
     Symbol* lookup_local(const std::string& name) {
       auto it = children_.find(name);

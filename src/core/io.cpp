@@ -116,15 +116,12 @@ namespace sonic::io {
   std::string getFileNameWithoutExt(const std::string& path) {
     if (path.empty()) return "";
 
-    // ambil filename (setelah '/' atau '\')
     size_t sep = path.find_last_of("/\\");
     size_t start = (sep == std::string::npos) ? 0 : sep + 1;
 
-    // ambil posisi dot terakhir
     size_t dot = path.find_last_of('.');
     if (dot == std::string::npos || dot < start) {
-        // tidak ada extension
-        return path.substr(start);
+      return path.substr(start);
     }
 
     return path.substr(start, dot - start);

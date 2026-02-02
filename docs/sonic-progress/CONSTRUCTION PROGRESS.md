@@ -10,10 +10,6 @@ Dalam pengembangan bahasa pemrograman, terdapat beberapa langkah yang perlu di l
 4 tahap diatas hanyalah permulaan, jika membuat bahasa yang serius tentu masih ada tahap lainnya.
 
 ---
-
-DONE = ✅
-PROGRESS = ⏳
-FAILED = ❌
 ### Lexical Analysis
 - [x] Read String
 - [x] Read Char
@@ -23,12 +19,12 @@ FAILED = ❌
 ### Parser Analysis
 - [x] Extern Declaration
 - [ ] Parse Import Statement
-- [ ] Parse Function Declaration
+- [x] Parse Function Declaration
 - [x] Parse Variable Declaration
 - [x] Parse Type
 	- [x] Primitive (i32, i64, i128, f32, f64, bool, string, char)
 	- [ ] Scope Access
-	- [ ] Identifier
+	- [x] Identifier
 	- [x] Reference & Pointer
 - [x] Parse Expression
 	- [x] Pointer & Reference

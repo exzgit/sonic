@@ -37,7 +37,7 @@ namespace sonic::backend {
     void saveBitcode(const std::string& path);
     void saveLLReadable(const std::string& path);
     void generate_statement(SonicStmt* stmt);
-    void generate_expression(SonicExpr* expr);
+    llvm::Value* generate_expression(SonicExpr* expr);
     llvm::Type* mapping_type(SonicType* type);
 
     private:
@@ -49,5 +49,12 @@ namespace sonic::backend {
 
     std::string current_file_output;
     Symbol* symbols;
+    size_t offset_entry = 0;
+
+    inline std::string getEntryLabel() {
+      std::string entry = "sn_entry_" + std::to_string(offset_entry);
+      offset_entry += 1;
+      return entry;
+    }
   };
 };
