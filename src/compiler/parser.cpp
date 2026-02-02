@@ -398,7 +398,8 @@ namespace sonic::frontend {
       expr->value = std::move(previous_token->value);
       expr->rawValue = expr->value;
       expr->location = previous_token->location;
-      expr->kind = ExprKind::UNTYPED_LITERAL;
+      bool isFloat = expr->value.find('.') != std::string::npos;
+      expr->kind = isFloat ? ExprKind::FLOAT : ExprKind::INT;
 
       return expr;
     }
@@ -430,23 +431,20 @@ namespace sonic::frontend {
       return expr;
     }
 
-    if (match(TokenType::AMPERSAND) || match(TokenType::STAR)) {
+    if (match(TokenType::STAR)) {
       next();
-      expr->kind = ExprKind::UNARY;
+      expr->kind = ExprKind::DEREFERENCE;
       expr->op = previous_token->value;
-      if (match(TokenType::IDENT)) {
-        expr->nested = parse_identifiers();
-        return expr;
-      }
-
-      diag->report({
-        ErrorType::SYNTAX,
-        Severity::ERROR,
-        current_token->location,
-        "expected variable after '" + previous_token->value + "'"
-        "",
-        "example '" + previous_token->value + "x'"
-      });
+      expr->location = previous_token->location;
+      expr->nested = parse_expr();
+      return expr;
+    } else if (match(TokenType::AMPERSAND)) {
+      next();
+      expr->kind = ExprKind::REFERENCE;
+      expr->op = previous_token->value;
+      expr->location = previous_token->location;
+      expr->nested = parse_expr();
+      return expr;
     }
 
     if (match(TokenType::IDENT)) {
@@ -613,13 +611,23 @@ namespace sonic::frontend {
     }
 
     if (match(TokenType::QUESTION)) {
-      next();
       type->isNullable = true;
-    } else if (match(TokenType::STAR) || match(TokenType::AMPERSAND)) {
-      type->isReference = match(TokenType::AMPERSAND);
-      type->isPointer = match(TokenType::STAR);
-      if (type->isPointer)
-        type->isNullable = true;
+      next();
+    } else if (match(TokenType::STAR)) {
+      auto ptrType = std::make_unique<SonicType>();
+      ptrType->isPointer = true;
+      ptrType->kind = TypeKind::POINTER;
+      ptrType->elementType = std::move(type);
+      ptrType->location = current_token->location;
+      type = std::move(ptrType);
+      next();
+    } else if (match(TokenType::AMPERSAND)) {
+      auto refType = std::make_unique<SonicType>();
+      refType->isReference = true;
+      refType->kind = TypeKind::REFERENCE;
+      refType->elementType = std::move(type);
+      refType->location = current_token->location;
+      type = std::move(refType);
       next();
     }
 

@@ -23,6 +23,7 @@ sources = files([
   'src/compiler/lexer.cpp',
   'src/compiler/parser.cpp',
   'src/compiler/semantic.cpp',
+  'src/compiler/codegen.cpp',
   'src/core/startup.cpp',
   'src/core/debugging.cpp',
   'src/core/io.cpp',

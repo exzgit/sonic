@@ -1,7 +1,6 @@
 #pragma once
 
 // c++ library
-#include <memory>
 #include <string>
 
 // local headers
@@ -23,7 +22,7 @@ namespace sonic::frontend {
 
     SemanticAnalyzer(Symbol* sym);
 
-    void analyze(std::unique_ptr<SonicStmt> stmt);
+    void analyze(SonicStmt* stmt);
     void eager_analyze(SonicStmt* stmt);
     void analyze_statement(SonicStmt* stmt);
     void analyze_expression(SonicExpr* expr);

@@ -2,9 +2,6 @@
 
 // c++ library
 #include <string>
-#include <algorithm>
-#include <cctype>
-#include <cstdint>
 #include <memory>
 
 // local header
@@ -62,7 +59,6 @@ namespace sonic::frontend {
     CALL,
     BINARY,
     UNARY,
-    UNTYPED_LITERAL,
     INDEX,
     INT,
     FLOAT,
@@ -71,6 +67,8 @@ namespace sonic::frontend {
     STRING,
     SCOPE_ACCESS,
     MEMBER_ACCESS,
+    REFERENCE,
+    DEREFERENCE,
     UNKNOWN,
   };
 
@@ -81,7 +79,6 @@ namespace sonic::frontend {
       case sonic::frontend::ExprKind::CALL: return "call";
       case sonic::frontend::ExprKind::BINARY: return "binary";
       case sonic::frontend::ExprKind::UNARY: return "unary";
-      case sonic::frontend::ExprKind::UNTYPED_LITERAL: return "untyped";
       case sonic::frontend::ExprKind::INDEX: return "index";
       case sonic::frontend::ExprKind::INT: return "int";
       case sonic::frontend::ExprKind::FLOAT: return "float";
@@ -90,6 +87,8 @@ namespace sonic::frontend {
       case sonic::frontend::ExprKind::STRING: return "string";
       case sonic::frontend::ExprKind::SCOPE_ACCESS: return "scope_access";
       case sonic::frontend::ExprKind::MEMBER_ACCESS: return "member_access";
+      case sonic::frontend::ExprKind::REFERENCE: return "reference";
+      case sonic::frontend::ExprKind::DEREFERENCE: return "dereference";
       default: return "unknown";
     }
   }
@@ -152,6 +151,7 @@ namespace sonic::frontend {
 
     std::vector<std::unique_ptr<SonicType>> params;
     std::unique_ptr<SonicType> returnType; // optional
+    std::unique_ptr<SonicType> elementType;
 
     bool isNullable = false;
     bool isReference = false;
@@ -174,6 +174,9 @@ namespace sonic::frontend {
 
       if (returnType)
         t->returnType = returnType->clone();
+
+      if (elementType)
+        t->elementType = elementType->clone();
 
       return t;
     }
@@ -210,8 +213,13 @@ namespace sonic::frontend {
       }
 
       if (returnType) {
-        out += ind + "  return:\n";
+        out += ind + "  returnType:\n";
         out += returnType->to_string(indent + 2) + "\n";
+      }
+
+      if (elementType) {
+        out += ind + "  elementType:\n";
+        out += elementType->to_string(indent + 2) + "\n";
       }
 
       out += ind + ")";
@@ -263,7 +271,7 @@ namespace sonic::frontend {
     std::unique_ptr<SonicExpr> rhs;
 
     // semantic
-    SonicType* resolvedType = nullptr; // non-owning
+    std::unique_ptr<SonicType> resolvedType = nullptr; // non-owning
     void* symbol = nullptr;            // non-owning
 
     std::unique_ptr<SonicExpr> clone() const {
@@ -341,6 +349,12 @@ namespace sonic::frontend {
       if (rhs) {
         out += ind + "  rhs:\n";
         out += rhs->to_string(indent + 2) + "\n";
+      }
+
+
+      if (resolvedType) {
+        out += ind + "  resolvedType:\n";
+        out += resolvedType->to_string(indent + 2) + "\n";
       }
 
       out += ind + ")";

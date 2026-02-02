@@ -65,6 +65,20 @@ namespace sonic::startup {
     return out;
   }
 
+  std::string getClearPath(const fs::path& file) {
+    fs::path rel = fs::relative(file, fs::path(sonic::config::project_root));
+
+    std::string out = sonic::config::project_name;
+    for (auto& part : rel) {
+      if (part.extension() == ".sn") {
+        out += "/" + part.stem().string();
+      } else {
+        out += "/" + part.string();
+      }
+    }
+    return out;
+  }
+
   void setProjectRoot(const std::string& entryFile) {
     sonic::config::project_root = fs::absolute(entryFile).parent_path();
   }

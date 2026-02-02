@@ -67,6 +67,44 @@ namespace sonic::io {
     return fs::exists(path);
   }
 
+  void create_folder(const std::string& path) {
+    if (!fs::exists(path)) {
+        if (fs::create_directories(path)) {
+            std::cout << "Folder created: " << path << "\n";
+        } else {
+            std::cerr << "Failed to create folder: " << path << "\n";
+        }
+    } else {
+        std::cout << "Folder already exists: " << path << "\n";
+    }
+  }
+
+  void create_file_and_folder(const std::string& filepath) {
+    fs::path path(filepath);
+    fs::path dir = path.parent_path();
+
+    if (!dir.empty() && !fs::exists(dir)) {
+      if (!fs::create_directories(dir)) {
+        std::cerr << "Failed to create folder: " << dir.string() << "\n";
+        return;
+      }
+    }
+
+    std::ofstream ofs(filepath, std::ios::out);
+    if (!ofs) {
+      std::cerr << "Failed to create file: " << filepath << "\n";
+      return;
+    }
+    ofs.close();
+  }
+
+  std::string resolvePath(const std::string& path) {
+      fs::path p(path);
+      p = fs::absolute(p);
+      p = p.lexically_normal();
+      return p.string();
+  }
+
   std::string getPathWithoutExtension(const std::string& path) {
     size_t pos = path.find_last_of(".");
     if (pos == std::string::npos) {

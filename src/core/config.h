@@ -29,6 +29,7 @@ namespace sonic::config {
   inline std::string project_name;
   inline std::string project_path;
   inline std::string project_root;
+  inline std::string project_build;
   inline std::string config_file;
   inline std::string output_name;
   inline std::string target_platform;

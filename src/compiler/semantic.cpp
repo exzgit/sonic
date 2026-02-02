@@ -1,7 +1,6 @@
 // c++ library
 #include <vector>
 #include <string>
-#include <algorithm>
 // #include <unordered_map>
 #include <memory>
 
@@ -20,10 +19,10 @@ namespace sonic::frontend {
   SemanticAnalyzer::SemanticAnalyzer(Symbol* sym)
       : symbols(sym) {}
 
-  void SemanticAnalyzer::analyze(std::unique_ptr<SonicStmt> stmt) {
+  void SemanticAnalyzer::analyze(SonicStmt* stmt) {
     if (!symbols) return;
-    eager_analyze(stmt.get());
-    analyze_statement(stmt.get());
+    eager_analyze(stmt);
+    analyze_statement(stmt);
   }
 
   void SemanticAnalyzer::eager_analyze(SonicStmt* stmt) {
@@ -48,7 +47,7 @@ namespace sonic::frontend {
         progSym->offset = offset;
 
         // move current symbols -> temp & move program symbols -> symbols
-        auto temp = std::move(symbols);
+        auto temp = symbols;
         symbols = progSym;
 
 
@@ -62,8 +61,8 @@ namespace sonic::frontend {
         scopeLevel = currentScope;
 
         // declare current symbols -> temp & return symbols -> previous value
-        temp->declare(progSym);
-        symbols = std::move(temp);
+        symbols = temp;
+        symbols->declare(progSym);
 
         break;
       }
@@ -80,6 +79,15 @@ namespace sonic::frontend {
 
         print("eager: analyze function '" + stmt->name + "'");
         auto funcSym = create_fn(stmt->name);
+
+        if (stmt->returnType) {
+          analyze_types(stmt->returnType.get());
+          funcSym->type_ = stmt->returnType.get();
+        } else {
+          stmt->returnType = std::make_unique<SonicType>();
+          stmt->returnType->kind = TypeKind::VOID;
+          funcSym->type_ = stmt->returnType.get();
+        }
 
         for (auto& param : stmt->parameters) {
           if (funcSym->exists(param->name)) {
@@ -98,10 +106,6 @@ namespace sonic::frontend {
             if (funcSym->variadic_) break;
           }
         }
-
-        analyze_types(stmt->returnType.get());
-        funcSym->type_ = stmt->returnType.get();
-
         symbols->declare(funcSym);
 
         break;
@@ -118,7 +122,7 @@ namespace sonic::frontend {
         auto progSym = symbols->lookup(stmt->name);
         if (!progSym) break;
 
-        auto temp = std::move(symbols);
+        auto temp = symbols;
         symbols = progSym;
 
         auto currentScope = scopeLevel;
@@ -153,7 +157,7 @@ namespace sonic::frontend {
         auto funcSym = symbols->lookup_local(stmt->name);
         if (!funcSym) break;
 
-        auto temp = std::move(symbols);
+        auto temp = symbols;
         symbols = funcSym;
 
         scopeLevel = ScopeLevel::FUNC;
@@ -164,7 +168,7 @@ namespace sonic::frontend {
 
         scopeLevel = ScopeLevel::GLOBAL;
 
-        symbols = std::move(temp);
+        symbols = temp;
         break;
       }
       case StmtKind::VAR_DECL:
@@ -268,7 +272,7 @@ namespace sonic::frontend {
             stmt->dataType->kind = TypeKind::F64;
           }
 
-          stmt->expr->resolvedType = stmt->dataType.get();
+          stmt->expr->resolvedType = stmt->dataType->clone();
         }
 
         stmt->dataType->isNullable = isNullable;
@@ -279,9 +283,28 @@ namespace sonic::frontend {
         if (!stmt->expr->resolvedType)
           return;
 
+        if (stmt->dataType->kind == TypeKind::POINTER && stmt->expr->kind != ExprKind::REFERENCE) {
+          diag->report({
+            ErrorType::SEMANTIC,
+            Severity::ERROR,
+            stmt->expr->resolvedType->location,
+            "expected pointer address"
+          });
+          return;
+        }
+        else if (stmt->dataType->kind == TypeKind::REFERENCE && stmt->expr->kind != ExprKind::DEREFERENCE) {
+          diag->report({
+            ErrorType::SEMANTIC,
+            Severity::ERROR,
+            stmt->expr->location,
+            "expected object reference"
+          });
+          return;
+        }
+
         if (stmt->dataType->isInteger() && stmt->expr->resolvedType->kind == TypeKind::UNRESOLVED) {
           if (stmt->expr->kind == ExprKind::INT) {
-            if (stmt->expr->inferIntegerBitWidth() <= stmt->dataType->bitWidth()) stmt->expr->resolvedType->kind = stmt->dataType->kind;
+            if (stmt->expr->inferIntegerBitWidth() <= stmt->dataType->bitWidth()) stmt->expr->resolvedType = stmt->dataType->clone();
             else {
               diag->report({
                 ErrorType::SEMANTIC,
@@ -323,25 +346,25 @@ namespace sonic::frontend {
     switch (expr->kind) {
       case ExprKind::FLOAT:
       case ExprKind::INT: {
-        expr->resolvedType = new SonicType();
+        expr->resolvedType = std::make_unique<SonicType>();
         expr->resolvedType->kind = TypeKind::UNRESOLVED;
         expr->resolvedType->location = expr->location;
         break;
       }
       case ExprKind::STRING: {
-        expr->resolvedType = new SonicType();
+        expr->resolvedType = std::make_unique<SonicType>();
         expr->resolvedType->kind = TypeKind::STRING;
         expr->resolvedType->location = expr->location;
         break;
       }
       case ExprKind::CHAR: {
-        expr->resolvedType = new SonicType();
+        expr->resolvedType = std::make_unique<SonicType>();
         expr->resolvedType->kind = TypeKind::CHAR;
         expr->resolvedType->location = expr->location;
         break;
       }
       case ExprKind::BOOL: {
-        expr->resolvedType = new SonicType();
+        expr->resolvedType = std::make_unique<SonicType>();
         expr->resolvedType->kind = TypeKind::BOOL;
         expr->resolvedType->location = expr->location;
         break;
@@ -369,7 +392,41 @@ namespace sonic::frontend {
           break;
         }
 
-        expr->resolvedType = sym->type_;
+        expr->resolvedType = sym->type_->clone();
+        expr->resolvedType->location = expr->location;
+        break;
+      }
+      case ExprKind::REFERENCE: {
+        if (!expr->nested) return;
+        if (expr->nested->kind != ExprKind::IDENT) {
+          diag->report({
+            ErrorType::SEMANTIC,
+            Severity::ERROR,
+            expr->nested->location,
+            "expected variable after '&' reference"
+          });
+        }
+        analyze_expression(expr->nested.get());
+        expr->resolvedType = std::make_unique<SonicType>();
+        expr->resolvedType->kind = TypeKind::REFERENCE;
+        expr->resolvedType->elementType = expr->nested->resolvedType->clone();
+        expr->resolvedType->location = expr->location;
+        break;
+      }
+      case ExprKind::DEREFERENCE: {
+        if (!expr->nested) return;
+        if (expr->nested->kind != ExprKind::IDENT) {
+          diag->report({
+            ErrorType::SEMANTIC,
+            Severity::ERROR,
+            expr->nested->location,
+            "expected variable after '*' dereference"
+          });
+        }
+        analyze_expression(expr->nested.get());
+        expr->resolvedType = std::make_unique<SonicType>();
+        expr->resolvedType->kind = TypeKind::POINTER;
+        expr->resolvedType->elementType = expr->nested->resolvedType->clone();
         expr->resolvedType->location = expr->location;
         break;
       }
@@ -421,7 +478,7 @@ namespace sonic::frontend {
             }
           }
 
-          expr->resolvedType = sym->type_;
+          expr->resolvedType = sym->type_->clone();
         } else {
           analyze_expression(expr->callee.get());
         }
@@ -441,6 +498,7 @@ namespace sonic::frontend {
     sym->kind = SymbolKind::FUNCTION;
     sym->scopeLevel = scopeLevel;
     sym->name_ = name;
+    sym->parent_ = symbols;
     sym->mangleName_ = startup::pathToNamespace(symbols->name_) + "@" + name;
     sym->offset = offset;
     sym->depth = depth;
@@ -453,6 +511,7 @@ namespace sonic::frontend {
     sym->kind = SymbolKind::VARIABLE;
     sym->scopeLevel = scopeLevel;
     sym->name_ = name;
+    sym->parent_ = symbols;
     if (symbols->kind == SymbolKind::NAMESPACE) {
       sym->mangleName_ = startup::pathToNamespace(filename) + "@" + name;
     } else {

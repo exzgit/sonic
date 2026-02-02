@@ -61,8 +61,7 @@ namespace sonic::frontend {
 
     Symbol* lookup_local(const std::string& name) {
       auto it = children_.find(name);
-      if (it == children_.end()) return nullptr;
-      return it->second;
+      return it != children_.end() ? it->second : nullptr;
     }
 
     Symbol* lookup(const std::string& name) {
@@ -113,27 +112,67 @@ namespace sonic::frontend {
       return sym;
     }
 
-    std::string to_string(int indent = 0) {
+    std::string to_string(int indent = 0) const {
+      auto pad = [&](int n) {
+        return std::string(n * 2, ' ');
+      };
+
       std::string out;
-      auto ind = indent_str(indent);
+      out += pad(indent);
+      out += "Symbol {\n";
 
-      out += ind + "(Symbol ";
-      out += name_ + " kind=" + symbolkind_to_string(kind) + "\n";
+      out += pad(indent + 1) + "kind: " + symbolkind_to_string(kind) + "\n";
+      out += pad(indent + 1) + "name: " + name_ + "\n";
 
-      if (type_) {
-        out += ind + "  type:\n";
+      if (!mangleName_.empty())
+        out += pad(indent + 1) + "mangled: " + mangleName_ + "\n";
+
+      out += pad(indent + 1) + "type:\n";
+      if (type_)
         out += type_->to_string(indent + 2) + "\n";
+      else
+        out += std::string(indent + 2, ' ') +  "<null>\n";
+
+      out += pad(indent + 1) + "scope: ";
+      switch (scopeLevel) {
+        case ScopeLevel::GLOBAL: out += "GLOBAL"; break;
+        case ScopeLevel::FUNC:   out += "FUNC"; break;
+        case ScopeLevel::BLOCK:  out += "BLOCK"; break;
       }
+      out += "\n";
+
+      out += pad(indent + 1) + "depth: " + std::to_string(depth) + "\n";
+      out += pad(indent + 1) + "offset: " + std::to_string(offset) + "\n";
 
       if (!params_.empty()) {
-        out += ind + "  params:\n";
-        for (auto& p : params_) {
-          out += ind + "    - " + typekind_to_string(p->kind) + "\n";
+        out += pad(indent + 1) + "params:\n";
+        for (auto* p : params_) {
+          out += pad(indent + 2);
+          out += p ? p->name : "<null>";
+          out += "\n";
         }
       }
 
-      out += ind + ")";
+      if (!generics_.empty()) {
+        out += pad(indent + 1) + "generics:\n";
+        for (auto& g : generics_) {
+          out += pad(indent + 2) + g.first + " : ";
+          out += g.second ? g.second->name : "<null>";
+          out += "\n";
+        }
+      }
+
+      if (!children_.empty()) {
+        out += pad(indent + 1) + "children[" + std::to_string(children_.size()) + "]:\n";
+        for (auto& [name, child] : children_) {
+          if (!child) continue;
+          out += child->to_string(indent + 2);
+        }
+      }
+
+      out += pad(indent) + "}\n";
       return out;
     }
+
   };
 };

@@ -15,6 +15,9 @@ namespace sonic::io {
   bool is_file(const string& path);
   bool is_directory(const string& path);
   bool is_exists(const string& path);
+  void create_folder(const string& path);
+  std::string resolvePath(const std::string& path);
+  void create_file_and_folder(const std::string& filepath);
 
   std::string getPathWithoutExtension(const std::string& path);
   std::string getFileNameWithoutExt(const std::string& path);

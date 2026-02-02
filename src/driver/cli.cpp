@@ -1,5 +1,6 @@
 // c++ library
 #include <iostream>
+#include <locale>
 #include <string>
 
 // local header
@@ -11,6 +12,7 @@
 #include "../compiler/diagnostics.h"
 #include "../compiler/semantic.h"
 #include "../compiler/symbol.h"
+#include "../compiler/codegen.h"
 
 namespace cfg = sonic::config;
 using namespace sonic::frontend;
@@ -160,17 +162,29 @@ void compile_project() {
   parser.diag = &diag;
   auto program = parser.parse();
 
+
+  auto symbols = new Symbol();
+  SemanticAnalyzer analyzer(symbols);
+  analyzer.diag = &diag;
+  analyzer.analyze(program.get());
+
+  if (program) {
+    std::cout << "|--| DEBUG SYMBOL |--|\n";
+    std::cout << "===================\n";
+    std::cout << symbols->to_string(0) << "\n";
+  }
+
   if (program) {
     std::cout << "|--| DEBUG AST |--|\n";
     std::cout << "===================\n";
     std::cout << program->to_string(0) << "\n";
   }
 
-  auto symbols = std::make_unique<Symbol>();
-  SemanticAnalyzer analyzer(symbols.get());
-  analyzer.diag = &diag;
-  analyzer.analyze(program->clone());
   diag.flush();
+
+  sonic::backend::SonicCodegen codegen(symbols);
+  cfg::project_build = sonic::io::resolvePath(sonic::io::getFullPath(cfg::project_root + "/../build"));
+  codegen.generate(program.get());
 }
 
 void run_project() {
