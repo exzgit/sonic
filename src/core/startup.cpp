@@ -6,6 +6,7 @@
 // local header
 #include "startup.h"
 #include "config.h"
+#include "io.h"
 #include "target_info.h"
 
 namespace fs = std::filesystem;
@@ -82,5 +83,6 @@ namespace sonic::startup {
 
   void setProjectRoot(const std::string& entryFile) {
     sonic::config::project_root = fs::absolute(entryFile).parent_path();
+    sonic::config::project_build = io::resolvePath(config::project_root + "/../build");
   }
 }

@@ -1,7 +1,5 @@
-
-func cast(i: i128) -> i64 {}
+import std::io use { printc };
 
 func main() {
-  let a: i128 = 1;
-  let b: i128 = a;
+  printc('a');
 }

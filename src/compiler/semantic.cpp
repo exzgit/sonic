@@ -1,531 +1,702 @@
 // c++ library
 #include <vector>
 #include <string>
+#include <filesystem>
 // #include <unordered_map>
 #include <memory>
 
 // local headers
 #include "../core/debugging.h"
+#include "ast.h"
 #include "diagnostics.h"
 #include "semantic.h"
-#include "startup.h"
+#include "io.h"
+#include "lexer.h"
+#include "manager.h"
+#include "parser.h"
+#include "ast_io.h"
 #include "symbol.h"
-#include "ast.h"
+#include "../core/config.h"
+#include "codegen.h"
 
 using namespace sonic::debug;
+using namespace sonic::backend;
 
 namespace sonic::frontend {
+  using namespace ast;
+  using namespace ast::io;
 
   SemanticAnalyzer::SemanticAnalyzer(Symbol* sym)
-      : symbols(sym) {}
+  : symbols(sym), groups(sym)
+  {}
 
-  void SemanticAnalyzer::analyze(SonicStmt* stmt) {
-    if (!symbols) return;
-    eager_analyze(stmt);
-    analyze_statement(stmt);
+  void SemanticAnalyzer::analyze(Program* pg) {
+    if (!pg) return;
+
+    if (groups->exists(sonic::io::getFileNameWithoutExt(pg->name_))) return;
+
+    auto program = new Symbol();
+    program->kind_ = SymbolKind::NAMESPACE;
+    program->name_ = sonic::io::getFileNameWithoutExt(pg->name_);
+    program->mangle_ = "sn_" + pg->name_;
+
+    symbols->declare(program);
+
+    symbols = program;
+    for (auto& st : pg->statements_) eager_analyze(st.get());
+    symbols = program;
+    for (auto& st : pg->statements_) analyze_statement(st.get());
+    symbols = groups;
+
+    // save AST and Symbol info to cache
+    sonic::io::create_folder(sonic::io::getFullPath(config::project_build + "/"));
+    sonic::io::create_folder(sonic::io::getFullPath(config::project_build + "/cache/"));
+    sonic::frontend::ast::io::saveProgramToFile(*pg, sonic::io::getFullPath(config::project_build + "/cache/" + sonic::io::getFileNameWithoutExt(filepath + "/" + program->name_) + ".ast.json"));
+
+    sonic::backend::SonicCodegen codegen(symbols);
+    codegen.generate(pg);
   }
 
-  void SemanticAnalyzer::eager_analyze(SonicStmt* stmt) {
-    if (!stmt) return;
+  void SemanticAnalyzer::eager_analyze(Statement* st) {
+    if (!st) return;
 
-    switch (stmt->kind) {
-      case StmtKind::PROGRAM: {
+    switch (st->kind_) {
+      case StmtKind::FUNCTION: {
 
-        // hentikan analisis jika program sudah di analisis sebelumnya
-        if (symbols->exists(stmt->name))
-          break;
-
-        print("eager: analyze program '" + stmt->name + "'");
-        filename = stmt->name;
-
-        // create program symbols
-        auto progSym = new Symbol();
-        progSym->kind = SymbolKind::NAMESPACE;
-        progSym->name_ = stmt->name;
-        progSym->scopeLevel = scopeLevel;
-        progSym->depth = depth;
-        progSym->offset = offset;
-
-        // move current symbols -> temp & move program symbols -> symbols
-        auto temp = symbols;
-        symbols = progSym;
-
-
-        auto currentScope = scopeLevel;
-        scopeLevel = ScopeLevel::GLOBAL;
-
-        for (auto& child : stmt->body) {
-          eager_analyze(child.get());
-        }
-
-        scopeLevel = currentScope;
-
-        // declare current symbols -> temp & return symbols -> previous value
-        symbols = temp;
-        symbols->declare(progSym);
-
-        break;
-      }
-      case StmtKind::FUNC_DECL: {
-        if (symbols->lookup_local(stmt->name)) {
+        if (symbols->exists(st->name_)) {
           diag->report({
             ErrorType::SEMANTIC,
             Severity::ERROR,
-            stmt->location,
-            "function '" + stmt->name + "' already '" + (stmt->isExtern && stmt->body.empty() ? "declared'" : "defined'")
+            st->loc_,
+            "function already defined"
           });
           break;
         }
 
-        print("eager: analyze function '" + stmt->name + "'");
-        auto funcSym = create_fn(stmt->name);
+        auto function = new Symbol();
+        function->kind_ = SymbolKind::FUNCTION;
+        function->scope_ = scopeLevel;
+        function->name_ = st->name_;
+        function->mangle_ = symbols->mangle_ + "_" + st->name_;
+        function->variadic_ = st->variadic_;
+        function->public_ = st->public_;
+        function->extern_ = st->extern_;
+        function->async_ = st->async_;
+        function->parent_ = symbols;
+        function->decl_ = st->declare_;
 
-        if (stmt->returnType) {
-          analyze_types(stmt->returnType.get());
-          funcSym->type_ = stmt->returnType.get();
-        } else {
-          stmt->returnType = std::make_unique<SonicType>();
-          stmt->returnType->kind = TypeKind::VOID;
-          funcSym->type_ = stmt->returnType.get();
+        if (st->name_ == "main" && entrySymbol) {
+          diag->report({
+            ErrorType::SEMANTIC,
+            Severity::ERROR,
+            st->loc_,
+            "function entry point already defined"
+          });
+          break;
+        } else if (st->name_ == "main") {
+          entrySymbol = function;
+          function->mangle_ = st->name_;
+          function->public_ = true;
         }
 
-        for (auto& param : stmt->parameters) {
-          if (funcSym->exists(param->name)) {
+        st->symbols_ = function;
+        symbols->declare(function);
+
+        std::vector<std::string> argName;
+        for (auto& arg : st->params_) {
+          bool used = false;
+          for (auto& a : argName) {
+            if (a == arg->name_) {
+              used = true;
+              break;
+            }
+          }
+
+          if (used) {
             diag->report({
               ErrorType::SEMANTIC,
               Severity::ERROR,
-              stmt->location,
-              "parameter name '" + param->name + "' already exists"
+              arg->loc_,
+              "parameter name already used"
             });
             continue;
-          } else {
-            funcSym->variadic_ = param->variadic;
-            analyze_types(param->type.get());
-            funcSym->params_.push_back(param->type.get());
-
-            if (funcSym->variadic_) break;
           }
+
+          argName.push_back(arg->name_);
+
+          analyze_type(arg->type_.get());
+          arg->type_->symbols_ = lookup_type(arg->type_.get());
+          function->params_.push_back(arg->type_.get());
         }
 
-        symbols->declare(funcSym);
+        if (st->type_) {
+          analyze_type(st->type_.get());
+          function->type_ = st->type_.get();
+        }
 
         break;
       }
-      default: break;
+      default:
+        return;
     }
   }
 
-  void SemanticAnalyzer::analyze_statement(SonicStmt* stmt) {
-    if (!stmt) return;
+  void SemanticAnalyzer::analyze_statement(Statement* st) {
+    if (!st) return;
 
-    switch (stmt->kind) {
-      case StmtKind::PROGRAM: {
-        auto progSym = symbols->lookup(stmt->name);
-        if (!progSym) break;
+    switch (st->kind_) {
+      case StmtKind::IMPORT: {
+        std::unique_ptr<ast::Program> module = nullptr;
+        Symbol* moduleNamespace = nullptr;
 
-        auto temp = symbols;
-        symbols = progSym;
+        // Resolve the module path using flexible search strategy
+        ModuleResolution resolution = resolveModulePath(st->import_qualified_);
 
-        auto currentScope = scopeLevel;
-        scopeLevel = ScopeLevel::GLOBAL;
+        if (resolution.path.empty()) {
+          // Module not found in any search path
+          std::string hintPath = "";
+          for (size_t i = 0; i < st->import_qualified_.size(); ++i) {
+            if (i > 0) hintPath += "::";
+            hintPath += st->import_qualified_[i]->name_;
+          }
 
-        for (auto& child : stmt->body) {
-          analyze_statement(child.get());
-        }
-
-        scopeLevel = currentScope;
-        symbols = temp;
-        break;
-      }
-      case StmtKind::FUNC_DECL: {
-        if (scopeLevel == ScopeLevel::FUNC) {
           diag->report({
             ErrorType::SEMANTIC,
             Severity::ERROR,
-            stmt->location,
-            "nested function definitions are not allowed"
+            st->import_qualified_.back()->loc_,
+            "module '" + hintPath + "' not found"
           });
           break;
         }
 
-        print("statement: analyze function '" + stmt->name + "'");
+        // Case 1: Import from a specific .sn file
+        if (!resolution.isDirectory) {
+          module = loadAndAnalyzeModule(resolution.path);
 
-        if (symbols->scopeLevel == ScopeLevel::GLOBAL) {
-          offset = 0;
-          depth = 0;
-        }
+          if (!module) {
 
-        auto funcSym = symbols->lookup_local(stmt->name);
-        if (!funcSym) break;
-
-        auto temp = symbols;
-        symbols = funcSym;
-
-        scopeLevel = ScopeLevel::FUNC;
-
-        for (auto& child : stmt->body) {
-          analyze_statement(child.get());
-        }
-
-        scopeLevel = ScopeLevel::GLOBAL;
-
-        symbols = temp;
-        break;
-      }
-      case StmtKind::VAR_DECL:
-        analyze_variable_declaration(stmt);
-        break;
-      default: {
-        print("unhandled statement kind in semantic analyzer '" + stmtkind_to_string(stmt->kind) + "'");
-        break;
-      }
-    }
-  }
-
-  void SemanticAnalyzer::analyze_variable_declaration(SonicStmt* stmt) {
-    if (!stmt) return;
-
-    if (scopeLevel == ScopeLevel::FUNC) {
-      bool isErr = false;
-
-      if (stmt->isExtern) {
-        diag->report({
-          ErrorType::SEMANTIC,
-          Severity::ERROR,
-          stmt->location,
-          "local variables cannot be extern"
-        });
-        isErr = true;
-      }
-
-      if (stmt->mutability == Mutability::STATIC || stmt->mutability == Mutability::CONSTANT) {
-        diag->report({
-          ErrorType::SEMANTIC,
-          Severity::ERROR,
-          stmt->location,
-          "local variables cannot be " + mutability_to_string(stmt->mutability)
-        });
-        isErr = true;
-      }
-
-      if (stmt->isPublic) {
-        diag->report({
-          ErrorType::SEMANTIC,
-          Severity::ERROR,
-          stmt->location,
-          "local variables cannot be public"
-        });
-        isErr = true;
-      }
-
-      if (isErr) return;
-    }
-
-    auto varSym = create_var(stmt->name);
-    varSym->extern_ = stmt->isExtern;
-    varSym->public_ = stmt->isPublic;
-    varSym->mutability_ = stmt->mutability;
-
-    if (stmt->dataType) {
-      if (stmt->dataType->kind == TypeKind::VOID) {
-        diag->report({
-          ErrorType::SEMANTIC,
-          Severity::ERROR,
-          stmt->location,
-          "variable cannot be void"
-        });
-        return;
-      }
-
-      analyze_types(stmt->dataType.get());
-      varSym->type_ = stmt->dataType.get();
-    }
-
-    if (!stmt->expr) {
-      symbols->declare(varSym);
-      return;
-    }
-
-    analyze_expression(stmt->expr.get());
-
-    if (stmt->expr->resolvedType && stmt->expr->resolvedType->kind == TypeKind::VOID) {
-      diag->report({
-        ErrorType::SEMANTIC,
-        Severity::ERROR,
-        stmt->location,
-        "variable cannot be assigned with void"
-      });
-      return;
-    }
-
-    if (stmt->dataType) {
-      bool isNullable = stmt->dataType->isNullable;
-
-      if (stmt->dataType->kind == TypeKind::AUTO) {
-        stmt->dataType = stmt->expr->resolvedType->clone();
-
-        if (stmt->expr->resolvedType->kind == TypeKind::UNRESOLVED) {
-          if (stmt->expr->kind == ExprKind::INT) {
-            if (stmt->expr->inferIntegerBitWidth() == 32) stmt->dataType->kind = TypeKind::I64;
-            else if (stmt->expr->inferIntegerBitWidth() == 64) stmt->dataType->kind = TypeKind::I64;
-            else if (stmt->expr->inferIntegerBitWidth() == 128) stmt->dataType->kind = TypeKind::I128;
-          } else if (stmt->expr->kind == ExprKind::FLOAT) {
-            stmt->dataType->kind = TypeKind::F64;
-          }
-
-          stmt->expr->resolvedType = stmt->dataType->clone();
-        }
-
-        stmt->dataType->isNullable = isNullable;
-        varSym->type_ = stmt->dataType.get();
-        symbols->declare(varSym);
-        return;
-      } else {
-        if (!stmt->expr->resolvedType)
-          return;
-
-        if (stmt->dataType->kind == TypeKind::POINTER && stmt->expr->kind != ExprKind::REFERENCE) {
-          diag->report({
-            ErrorType::SEMANTIC,
-            Severity::ERROR,
-            stmt->expr->resolvedType->location,
-            "expected pointer address"
-          });
-          return;
-        }
-        else if (stmt->dataType->kind == TypeKind::REFERENCE && stmt->expr->kind != ExprKind::DEREFERENCE) {
-          diag->report({
-            ErrorType::SEMANTIC,
-            Severity::ERROR,
-            stmt->expr->location,
-            "expected object reference"
-          });
-          return;
-        }
-
-        if (stmt->dataType->isInteger() && stmt->expr->resolvedType->kind == TypeKind::UNRESOLVED) {
-          if (stmt->expr->kind == ExprKind::INT) {
-            if (stmt->expr->inferIntegerBitWidth() <= stmt->dataType->bitWidth()) stmt->expr->resolvedType = stmt->dataType->clone();
-            else {
-              diag->report({
-                ErrorType::SEMANTIC,
-                Severity::ERROR,
-                stmt->expr->location,
-                "cannot infer literal"
-              });
+            std::string hintPath = "";
+            for (size_t i = 0; i < st->import_qualified_.size(); ++i) {
+              if (i > 0) hintPath += "::";
+              hintPath += st->import_qualified_[i]->name_;
             }
-          } else if (stmt->expr->kind == ExprKind::FLOAT) {
-            stmt->expr->resolvedType->kind = TypeKind::F64;
-          }
 
-          symbols->declare(varSym);
-          return;
-        }
-
-
-        if (stmt->dataType->isInteger() && stmt->expr->resolvedType->isInteger()) {
-          if (stmt->dataType->bitWidth() != stmt->expr->resolvedType->bitWidth()) {
             diag->report({
               ErrorType::SEMANTIC,
               Severity::ERROR,
-              stmt->expr->location,
-              "variable type mismatch"
-            });
-            return;
-          }
-
-          symbols->declare(varSym);
-        } else {
-          symbols->declare(varSym);
-        }
-      }
-    }
-
-  }
-
-  void SemanticAnalyzer::analyze_expression(SonicExpr* expr) {
-    if (!expr) return;
-
-    switch (expr->kind) {
-      case ExprKind::FLOAT:
-      case ExprKind::INT: {
-        expr->resolvedType = std::make_unique<SonicType>();
-        expr->resolvedType->kind = TypeKind::UNRESOLVED;
-        expr->resolvedType->location = expr->location;
-        break;
-      }
-      case ExprKind::STRING: {
-        expr->resolvedType = std::make_unique<SonicType>();
-        expr->resolvedType->kind = TypeKind::STRING;
-        expr->resolvedType->location = expr->location;
-        break;
-      }
-      case ExprKind::CHAR: {
-        expr->resolvedType = std::make_unique<SonicType>();
-        expr->resolvedType->kind = TypeKind::CHAR;
-        expr->resolvedType->location = expr->location;
-        break;
-      }
-      case ExprKind::BOOL: {
-        expr->resolvedType = std::make_unique<SonicType>();
-        expr->resolvedType->kind = TypeKind::BOOL;
-        expr->resolvedType->location = expr->location;
-        break;
-      }
-      case ExprKind::IDENT: {
-        auto sym = symbols->lookup(expr->name);
-
-        if (!sym) {
-          diag->report({
-            ErrorType::SEMANTIC,
-            Severity::ERROR,
-            expr->location,
-            "variable is undefined"
-          });
-          break;
-        }
-
-        if (sym->kind == SymbolKind::FUNCTION || sym->kind == SymbolKind::NAMESPACE) {
-          diag->report({
-            ErrorType::SEMANTIC,
-            Severity::ERROR,
-            expr->location,
-            "variable is function"
-          });
-          break;
-        }
-
-        expr->resolvedType = sym->type_->clone();
-        expr->resolvedType->location = expr->location;
-        break;
-      }
-      case ExprKind::REFERENCE: {
-        if (!expr->nested) return;
-        if (expr->nested->kind != ExprKind::IDENT) {
-          diag->report({
-            ErrorType::SEMANTIC,
-            Severity::ERROR,
-            expr->nested->location,
-            "expected variable after '&' reference"
-          });
-        }
-        analyze_expression(expr->nested.get());
-        expr->resolvedType = std::make_unique<SonicType>();
-        expr->resolvedType->kind = TypeKind::REFERENCE;
-        expr->resolvedType->elementType = expr->nested->resolvedType->clone();
-        expr->resolvedType->location = expr->location;
-        break;
-      }
-      case ExprKind::DEREFERENCE: {
-        if (!expr->nested) return;
-        if (expr->nested->kind != ExprKind::IDENT) {
-          diag->report({
-            ErrorType::SEMANTIC,
-            Severity::ERROR,
-            expr->nested->location,
-            "expected variable after '*' dereference"
-          });
-        }
-        analyze_expression(expr->nested.get());
-        expr->resolvedType = std::make_unique<SonicType>();
-        expr->resolvedType->kind = TypeKind::POINTER;
-        expr->resolvedType->elementType = expr->nested->resolvedType->clone();
-        expr->resolvedType->location = expr->location;
-        break;
-      }
-      case ExprKind::SCOPE_ACCESS: {
-
-      }
-      case ExprKind::MEMBER_ACCESS: {
-
-      }
-      case ExprKind::CALL: {
-        if (expr->callee->kind == ExprKind::IDENT) {
-          auto sym = symbols->lookup(expr->callee->name);
-          if (!sym || (sym && sym->kind != SymbolKind::FUNCTION)) {
-            diag->report({
-              ErrorType::SEMANTIC,
-              Severity::ERROR,
-              expr->callee->location,
-              "function '" + expr->callee->name + "' is undefined"
+              st->import_qualified_.back()->loc_,
+              "failed to parse module '" + hintPath + "'"
             });
             break;
           }
 
-          if (!expr->genericTypes.empty()) {
-            for (auto& gen : expr->genericTypes) {
-              analyze_types(gen.get());
+          moduleNamespace = symbols->lookup(sonic::io::getFileNameWithoutExt(module->name_));
+        }
+        // Case 2: Import from a directory (load all .sn files as namespace)
+        else {
+          // Create a namespace for the directory
+          std::string dirName = st->import_qualified_.back()->name_;
+
+          auto dirNamespace = new Symbol();
+          dirNamespace->kind_ = SymbolKind::NAMESPACE;
+          dirNamespace->name_ = dirName;
+          dirNamespace->scope_ = ScopeLevel::GLOBAL;
+          dirNamespace->mangle_ = symbols->mangle_ + "_" + dirName;
+
+          symbols->declare(dirNamespace);
+
+          // Load all .sn files and subdirectories in this directory
+          loadDirectoryAsNamespace(resolution.path, dirNamespace);
+
+          moduleNamespace = dirNamespace;
+        }
+
+        // Handle import items (specific imports)
+        if (!st->import_all_ && module) {
+          for (auto& c : st->import_items_) {
+            bool ok = false;
+
+            for (auto& m : module->statements_) {
+              if (c->name_ == m->name_) {
+                if (m->public_) {
+                  auto alias = new Symbol();
+                  alias->name_ = c->import_alias_.empty() ? c->name_ : c->import_alias_;
+                  alias->kind_ = SymbolKind::ALIAS;
+                  alias->scope_ = ScopeLevel::GLOBAL;
+                  alias->ref_ = (Symbol*)m->symbols_;
+                  symbols->declare(alias);
+
+                  c->symbols_ = alias;
+                } else {
+                  diag->report({
+                    ErrorType::SEMANTIC,
+                    Severity::ERROR,
+                    c->loc_,
+                    "symbol '" + c->name_ + "' is not public"
+                  });
+                }
+                ok = true;
+                break;
+              }
+            }
+
+            if (!ok) {
+              diag->report({
+                ErrorType::SEMANTIC,
+                Severity::ERROR,
+                c->loc_,
+                "symbol '" + c->name_ + "' not found in module"
+              });
             }
           }
+        }
+        // Handle import all (*) or directory imports
+        else if (st->import_all_ && (module || moduleNamespace)) {
+          Symbol* source = module ? moduleNamespace : moduleNamespace;
 
-          for (int i = 0; i < (sym->variadic_ ? expr->arguments.size() : sym->params_.size()); i++) {
-            analyze_expression(expr->arguments[i].get());
-            if (sym->variadic_ && i >= sym->params_.size()) {
-              if (expr->arguments[i]->resolvedType->kind != sym->params_.back()->kind) {
-                diag->report({
-                  ErrorType::SEMANTIC,
-                  Severity::ERROR,
-                  expr->location,
-                  "type mismatch at function arguments"
-                });
+          if (source) {
+            for (auto& sym : source->children_) {
+              if (sym->public_ || sym->kind_ == SymbolKind::NAMESPACE) {
+                auto alias = new Symbol();
+                alias->name_ = sym->name_;
+                alias->scope_ = ScopeLevel::GLOBAL;
+                alias->kind_ = SymbolKind::ALIAS;
+                alias->ref_ = sym;
+                symbols->declare(alias);
               }
+            }
+          }
+        }
+
+        break;
+      }
+      case StmtKind::FUNCTION: {
+        auto temp = symbols;
+        symbols = (Symbol*)st->symbols_;
+
+        if (st->declare_) {
+          symbols = temp;
+          break;
+        }
+
+        for (auto& ch : st->body_)
+          analyze_statement(ch.get());
+
+        symbols = temp;
+        break;
+      }
+      case StmtKind::RETURN: {
+        analyze_expression(st->value_.get());
+        if (st->value_) {
+          if (symbols->type_) {
+            // return with value
+            if (st->value_->type_->isIntegerType()) {
+              if (st->value_->bitWidth() <= 64 && st->value_ != 0) {
+                st->value_->literal_ = LiteralKind::I64;
+              } else if (st->value_->bitWidth() > 64 && st->value_ != 0) {
+                st->value_->literal_ = LiteralKind::I128;
+              } else {
+                // todo -> error
+              }
+            } else if (st->value_->type_->isFloatType()) {
+              if (st->value_->bitWidth() <= 64 && st->value_ != 0) {
+                st->value_->literal_ = LiteralKind::F64;
+              } else {
+                // todo -> error
+              }
+            }
+            else if (match_type(symbols->type_, st->value_->type_)) {
+              // type match
             } else {
-              if (expr->arguments[i]->resolvedType->kind != sym->params_[i]->kind) {
-                diag->report({
-                  ErrorType::SEMANTIC,
-                  Severity::ERROR,
-                  expr->location,
-                  "type mismatch at function arguments"
-                });
-              }
+              diag->report({
+                ErrorType::SEMANTIC,
+                Severity::ERROR,
+                st->value_->loc_,
+                "return type mismatch"
+              });
             }
+          } else {
+            // function has no return type
+            diag->report({
+              ErrorType::SEMANTIC,
+              Severity::ERROR,
+              st->loc_,
+              "function has no return type"
+            });
           }
-
-          expr->resolvedType = expr->nested->resolvedType->clone();
-          expr->resolvedType->location = expr->location;
-          expr->resolvedType = sym->type_->clone();
         } else {
-          analyze_expression(expr->callee.get());
+          if (symbols->type_) {
+            diag->report({
+              ErrorType::SEMANTIC,
+              Severity::ERROR,
+              st->loc_,
+              "return value expected"
+            });
+          }
         }
         break;
       }
-      default: break;
+      case StmtKind::VARIABLE: {
+        if (symbols->exists(st->name_)) {
+          diag->report({
+            ErrorType::SEMANTIC,
+            Severity::ERROR,
+            st->loc_,
+            "variable already exists"
+          });
+          break;
+        }
+
+        auto variable = new Symbol();
+        variable->name_ = st->name_;
+        variable->mangle_ = symbols->mangle_ + "_" + st->name_;
+        variable->public_ = st->public_;
+        variable->extern_ = st->extern_;
+        variable->async_ = st->async_;
+        variable->mutability_ = st->mutability;
+        variable->parent_ = symbols;
+
+        auto dty = lookup_type(st->type_.get());
+        analyze_expression(st->value_.get());
+        st->symbols_ = variable;
+
+        if (st->value_) {
+          if (st->value_->type_->isIntegerType()) {
+            if (st->value_->bitWidth() <= 64 && st->value_ != 0) {
+              st->value_->literal_ = LiteralKind::I64;
+            } else if (st->value_->bitWidth() > 64 && st->value_ != 0) {
+              st->value_->literal_ = LiteralKind::I128;
+            } else {
+              // todo -> error
+            }
+          } else if (st->value_->type_->isFloatType()) {
+            if (st->value_->bitWidth() <= 64 && st->value_ != 0) {
+              st->value_->literal_ = LiteralKind::I64;
+            } else {
+              // todo -> error
+            }
+          }
+
+          if (!st->type_ && st->value_->type_) st->type_ = st->value_->type_->clone();
+          else if (dty && !match_type(st->type_.get(), st->value_->type_)) {
+            // todo -> error
+          }
+        }
+
+        symbols->declare(variable);
+
+        break;
+      }
+      case StmtKind::EXPR: {
+        analyze_expression(st->value_.get());
+        break;
+      }
+      default:
+        return;
     }
   }
 
-  void SemanticAnalyzer::analyze_types(SonicType* type) {
-    //
-  }
+  void SemanticAnalyzer::analyze_expression(Expression* ex) {
+    if (!ex) return;
+    ex->type_ = new Type();
 
-  // helper definitions
-  Symbol* SemanticAnalyzer::create_fn(const std::string& name) {
-    auto sym = new Symbol();
-    sym->kind = SymbolKind::FUNCTION;
-    sym->scopeLevel = scopeLevel;
-    sym->name_ = name;
-    sym->parent_ = symbols;
-    sym->mangleName_ = (name != "main" ? startup::pathToNamespace(symbols->name_) + "." + name : name);
-    sym->offset = offset;
-    sym->depth = depth;
+    switch (ex->kind_) {
+      case ExprKind::LITERAL: {
+        ex->type_->kind_ = ast::TypeKind::LITERAL;
+        ex->type_->literal_ = ex->literal_;
+        break;
+      }
+      case ExprKind::VARIABLE: {
+        auto variable = symbols->lookup(ex->name_);
 
-    return sym;
-  }
+        if (!variable) break;
 
-  Symbol* SemanticAnalyzer::create_var(const std::string& name) {
-    auto sym = new Symbol();
-    sym->kind = SymbolKind::VARIABLE;
-    sym->scopeLevel = scopeLevel;
-    sym->name_ = name;
-    sym->parent_ = symbols;
-    if (symbols->kind == SymbolKind::NAMESPACE) {
-      sym->mangleName_ = startup::pathToNamespace(filename) + "." + name;
-    } else {
-      sym->mangleName_ = startup::pathToNamespace(filename) + "." + symbols->name_ + "_" + name;
+        if (variable->kind_ == SymbolKind::ALIAS) {
+          variable = variable->ref_;
+        }
+
+        ex->symbols_ = variable;
+        ex->type_ = variable->type_;
+        break;
+      }
+      case ExprKind::SCOPE: {
+        analyze_expression(ex->nested_.get());
+        auto scope = (Symbol*)ex->nested_->symbols_;
+        if (!scope) {
+          // todo -> error
+          break;
+        }
+        auto nested = scope->lookup(ex->name_);
+        if (!nested) {
+          // todo error
+          break;
+        }
+        ex->symbols_ = nested;
+        ex->type_ = nested->type_;
+        break;
+      }
+      case ExprKind::MEMBER: {
+        analyze_expression(ex->nested_.get());
+        auto scope = (Symbol*)ex->nested_->symbols_;
+        if (!scope) {
+          // todo -> error
+          break;
+        }
+        auto nested = scope->lookup(ex->name_);
+        if (!nested) {
+          // todo error
+          break;
+        }
+        ex->symbols_ = nested;
+        ex->type_ = nested->type_;
+        break;
+      }
+      case ExprKind::CALL: {
+        analyze_expression(ex->callee_.get());
+        auto sym = (Symbol*)ex->callee_->symbols_;
+
+        if (!sym) {
+          // todo -> error
+          break;
+        }
+
+        if (sym->kind_ == SymbolKind::ALIAS) {
+          sym = sym->ref_;
+        }
+
+        if (sym->kind_ != SymbolKind::FUNCTION) {
+          diag->report({
+            ErrorType::SEMANTIC,
+            Severity::ERROR,
+            ex->loc_,
+            "called symbol is not a function"
+          });
+          break;
+        }
+
+        for (auto& arg : ex->args_) {
+          analyze_expression(arg.get());
+        }
+
+        if (sym->kind_ != SymbolKind::FUNCTION) {
+          // todo -> error
+          break;
+        }
+
+        ex->type_ = sym->type_;
+        ex->symbols_ = sym;
+        break;
+      }
+      default: return;
     }
-    sym->offset = offset;
-    sym->depth = depth;
-
-    return sym;
   }
 
+  void SemanticAnalyzer::analyze_type(Type* ty) {
+    if (!ty) return;
+
+    switch(ty->kind_) {
+      case TypeKind::SCOPE: { break; }
+      default: return;
+    }
+  }
+
+  Symbol* SemanticAnalyzer::lookup_type(Type* ty) {
+    if (!ty) return nullptr;
+
+    switch(ty->kind_) {
+      case TypeKind::OBJECT: {
+        auto sym = symbols->lookup(ty->name_);
+        ty->symbols_ = sym;
+        return sym;
+      }
+      case TypeKind::SCOPE: {
+        auto sym = lookup_type(ty->nested_.get());
+        if (!sym) return nullptr;
+        sym = sym->lookup(ty->name_);
+        ty->symbols_ = sym;
+        return sym;
+      }
+      default:
+        return nullptr;
+    }
+  }
+
+  bool SemanticAnalyzer::match_type(Type* l, Type* r) {
+    if (!l) return false;
+    if (!r) return false;
+
+    if (l->kind_ == TypeKind::LITERAL && r->kind_ == TypeKind::LITERAL) {
+      if (l->isIntegerType() && r->isIntegerType()) {
+        if (r->literal_ == LiteralKind::UNK_INT) r = l;
+        if (l->bitWidth() == r->bitWidth()) return true;
+        else return false;
+      } else if (l->isFloatType() && r->isFloatType()) {
+        if (r->literal_ == LiteralKind::UNK_FLOAT) r = l;
+
+        if (l->bitWidth() == r->bitWidth()) return true;
+        else return false;
+      } else return false;
+    }
+
+    auto lsym = lookup_type(l);
+    auto rsym = lookup_type(r);
+    if (!lsym) return false;
+    return lsym == rsym;
+  }
+
+  std::string SemanticAnalyzer::getExternalLibPath() {
+    #ifdef _WIN32
+      // Windows: program_files/sonic_lib/
+      const char* programFiles = std::getenv("ProgramFiles");
+      if (programFiles) {
+        return std::string(programFiles) + "\\sonic_lib";
+      }
+    #else
+      // Linux/Mac: ~/.local/share/lib/sonic_lib/
+      const char* homeDir = std::getenv("HOME");
+      if (homeDir) {
+        return std::string(homeDir) + "/.local/share/lib/sonic_lib";
+      }
+    #endif
+    return "";
+  }
+
+  SemanticAnalyzer::ModuleResolution SemanticAnalyzer::resolveModulePath(const std::vector<std::unique_ptr<ast::Statement>>& qualified) {
+    if (qualified.empty()) {
+      return {"", ModuleSource::LOCAL, false};
+    }
+
+    // Build the relative path from qualified names
+    std::string relativePath = "";
+    for (size_t i = 0; i < qualified.size(); i++) {
+      if (i > 0) relativePath += "/";
+      relativePath += qualified[i]->name_;
+    }
+
+
+    // 1. Try local directory (where current file is)
+    std::string localPath = sonic::io::getFullPath(filepath) + "/" + relativePath;
+
+    // Check if it's a file with .sn extension
+    if (sonic::io::is_exists(localPath + ".sn") && sonic::io::is_file(localPath + ".sn")) {
+      return {localPath + ".sn", ModuleSource::LOCAL, false};
+    }
+
+    // Check if it's a directory
+    if (sonic::io::is_exists(localPath) && !sonic::io::is_file(localPath)) {
+      return {localPath, ModuleSource::LOCAL, true};
+    }
+
+    // 2. Try project root directory (where main.sn is)
+    // Get project root by going up from filepath until we find main.sn
+    std::string currentDir = sonic::io::getPathWithoutFile(sonic::io::getFullPath(filepath));
+    while (!currentDir.empty() && currentDir != "/") {
+      std::string projectPath = currentDir + "/" + relativePath;
+
+      if (sonic::io::is_exists(projectPath + ".sn") && sonic::io::is_file(projectPath + ".sn")) {
+        return {projectPath + ".sn", ModuleSource::PROJECT, false};
+      }
+
+      if (sonic::io::is_exists(projectPath) && !sonic::io::is_file(projectPath)) {
+        return {projectPath, ModuleSource::PROJECT, true};
+      }
+
+      // Move up one directory
+      size_t lastSlash = currentDir.find_last_of('/');
+      if (lastSlash == std::string::npos) break;
+      currentDir = currentDir.substr(0, lastSlash);
+    }
+
+    // 3. Try external libraries
+    std::string externalLib = getExternalLibPath();
+    if (!externalLib.empty()) {
+
+      std::string externalPath = externalLib + "/" + relativePath;
+
+      if (sonic::io::is_exists(externalPath + ".sn") && sonic::io::is_file(externalPath + ".sn")) {
+        return {externalPath + ".sn", ModuleSource::EXTERNAL, false};
+      }
+
+      if (sonic::io::is_exists(externalPath) && !sonic::io::is_file(externalPath)) {
+
+        return {externalPath, ModuleSource::EXTERNAL, true};
+      }
+    }
+
+    // Module not found
+    return {"", ModuleSource::LOCAL, false};
+  }
+
+  std::unique_ptr<ast::Program> SemanticAnalyzer::loadAndAnalyzeModule(const std::string& modulePath) {
+    if (!sonic::io::is_exists(modulePath) || !sonic::io::is_file(modulePath)) {
+      return nullptr;
+    }
+
+    std::string content = sonic::io::read_file(modulePath);
+    sonic::frontend::Lexer lexer(content, sonic::io::getFullPath(modulePath));
+    lexer.diag = diag;
+
+    sonic::frontend::Parser parser(sonic::io::getFullPath(modulePath), &lexer);
+    parser.diag = diag;
+    std::unique_ptr<ast::Program> program = parser.parse();
+
+    if (!program) return nullptr;
+
+    SemanticAnalyzer analyzer(groups);
+    analyzer.filepath = sonic::io::getPathWithoutFile(modulePath);
+    analyzer.diag = diag;
+    analyzer.entrySymbol = entrySymbol;
+    analyzer.analyze(program.get());
+
+    return program;
+  }
+
+  void SemanticAnalyzer::loadDirectoryAsNamespace(const std::string& dirPath, Symbol* parentSymbol) {
+    namespace fs = std::filesystem;
+
+    // Check if directory exists
+    if (!sonic::io::is_exists(dirPath)) {
+      return;
+    }
+
+    // Iterate through directory entries
+    for (const auto& entry : fs::directory_iterator(dirPath)) {
+      if (entry.is_regular_file() && entry.path().extension() == ".sn") {
+        // Parse and analyze each .sn file
+        std::string filePath = entry.path().string();
+        std::unique_ptr<ast::Program> module = loadAndAnalyzeModule(filePath);
+
+        if (module && parentSymbol) {
+          // Create namespace for this file
+          auto nsSymbol = new Symbol();
+          nsSymbol->kind_ = SymbolKind::NAMESPACE;
+          nsSymbol->name_ = sonic::io::getFileNameWithoutExt(entry.path().filename().string());
+          nsSymbol->mangle_ = parentSymbol->mangle_ + "_" + nsSymbol->name_;
+
+          // Add public symbols from module to namespace
+          for (auto& stmt : module->statements_) {
+            if (stmt->public_) {
+              auto alias = new Symbol();
+              alias->name_ = stmt->name_;
+              alias->kind_ = SymbolKind::ALIAS;
+              alias->ref_ = (Symbol*)stmt->symbols_;
+              nsSymbol->declare(alias);
+            }
+          }
+
+          parentSymbol->declare(nsSymbol);
+        }
+      }
+      else if (entry.is_directory()) {
+        // Recursively load subdirectories
+        auto subDirSymbol = new Symbol();
+        subDirSymbol->kind_ = SymbolKind::NAMESPACE;
+        subDirSymbol->name_ = entry.path().filename().string();
+        subDirSymbol->mangle_ = parentSymbol->mangle_ + "_" + subDirSymbol->name_;
+
+        parentSymbol->declare(subDirSymbol);
+        loadDirectoryAsNamespace(entry.path().string(), subDirSymbol);
+      }
+    }
+  }
 };

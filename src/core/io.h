@@ -23,4 +23,5 @@ namespace sonic::io {
   std::string getFileNameWithoutExt(const std::string& path);
   std::string getPathWithoutFile(const std::string& path);
   std::string getFullPath(const std::string& path);
+  std::string cutPath(const std::string& path, const std::string& prefix);
 }

@@ -33,12 +33,12 @@ namespace sonic::backend {
     SonicCodegen(Symbol* symbol);
     ~SonicCodegen();
 
-    void generate(SonicStmt* stmt);
+    void generate(ast::Program* program);
     void saveBitcode(const std::string& path);
     void saveLLReadable(const std::string& path);
-    void generate_statement(SonicStmt* stmt);
-    llvm::Value* generate_expression(SonicExpr* expr);
-    llvm::Type* mapping_type(SonicType* type);
+    void generate_statement(ast::Statement* stmt);
+    llvm::Value* generate_expression(ast::Expression* expr);
+    llvm::Type* mapping_type(ast::Type* type);
 
     private:
     llvm::LLVMContext context;
@@ -49,6 +49,7 @@ namespace sonic::backend {
 
     std::string current_file_output;
     Symbol* symbols;
+    Symbol* current_function_ = nullptr;
     size_t offset_entry = 0;
 
     inline std::string getEntryLabel() {

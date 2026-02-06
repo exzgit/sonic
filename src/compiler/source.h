@@ -30,8 +30,6 @@ struct SourceLocation {
   uint32_t start; // 1-based column
   uint32_t end;   // exclusive
 
-  bool is_error = false;
-
   // Default constructor
   SourceLocation()
     : path(""),

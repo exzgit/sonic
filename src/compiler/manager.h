@@ -1,12 +1,12 @@
 #pragma once
 
-// #include "ast/stmt.h"
-// #include <vector>
+#include "ast.h"
+#include <vector>
 
-// using namespace sonic::frontend;
+using namespace sonic::frontend;
 
-// inline std::vector<Stmt*> astListManager;
+inline std::vector<ast::Program*> astListManager;
 
-// inline void insert_ast(Stmt* ast) {
-//   astListManager.push_back(ast);
-// }
+inline void insert_ast(ast::Program* ast) {
+  astListManager.push_back(ast);
+}

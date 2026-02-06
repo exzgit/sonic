@@ -1,17 +1,18 @@
 // c++ library
 #include <iostream>
-#include <locale>
 #include <string>
 
 // local header
 #include "../core/config.h"
 #include "../core/startup.h"
+#include "ast_io.h"
+#include "ast_json.h"
+#include "manager.h"
 #include "io.h"
 #include "../compiler/lexer.h"
 #include "../compiler/parser.h"
 #include "../compiler/diagnostics.h"
-#include "../compiler/semantic.h"
-#include "../compiler/symbol.h"
+#include "semantic.h"
 #include "../compiler/codegen.h"
 
 namespace cfg = sonic::config;
@@ -123,7 +124,12 @@ void check_arguments(int argc, char* argv[]) {
     else if (arg == "-O3") cfg::optimizer_level = sonic::config::OptLevel::O3;
     else if (arg == "-Ofast") cfg::optimizer_level = sonic::config::OptLevel::OFAST;
     else {
-      if (i < 2) {
+       if (i <= 2 && sonic::io::is_exists(arg) && sonic::io::is_file(arg)) {
+        sonic::config::project_path = arg;
+        continue;
+      }
+
+      if (i <= 2) {
         std::cerr << "\033[31m(error)\033[0m " << "unknown arguments '" << arg << "'\n";
         std::exit(0);
       }
@@ -137,7 +143,7 @@ void check_arguments(int argc, char* argv[]) {
         std::exit(0);
       }
     }
-  }
+  } 
 }
 
 using namespace sonic::io;
@@ -149,6 +155,7 @@ int main(int argc, char* argv[]) {
   check_arguments(argc, argv);
 
   if (cfg::is_compiled) compile_project();
+  else if (!cfg::is_compiled && !cfg::project_path.empty()) run_project();
 
   return 0;
 }
@@ -166,37 +173,59 @@ void compile_project() {
   sonic::startup::setProjectRoot(f);
 
   DiagnosticEngine diag;
-  sonic::frontend::Lexer lexer(content, f);
+  sonic::frontend::Lexer lexer(content, getFullPath(f));
   lexer.diag = &diag;
-  sonic::frontend::Parser parser(f, &lexer);
+  sonic::frontend::Parser parser(getFullPath(f), &lexer);
   parser.diag = &diag;
   auto program = parser.parse();
 
-
+  cfg::project_build = sonic::io::resolvePath(sonic::io::getFullPath(cfg::project_root + "/../build"));
   auto symbols = new Symbol();
+
   SemanticAnalyzer analyzer(symbols);
+  analyzer.filepath = sonic::io::getPathWithoutFile(f);
   analyzer.diag = &diag;
   analyzer.analyze(program.get());
 
-  if (program) {
-    std::cout << "|--| DEBUG SYMBOL |--|\n";
-    std::cout << "===================\n";
-    std::cout << symbols->to_string(0) << "\n";
-  }
-
-  if (program) {
-    std::cout << "|--| DEBUG AST |--|\n";
-    std::cout << "===================\n";
-    std::cout << program->to_string(0) << "\n";
-  }
-
   diag.flush();
 
-  sonic::backend::SonicCodegen codegen(symbols);
-  cfg::project_build = sonic::io::resolvePath(sonic::io::getFullPath(cfg::project_root + "/../build"));
-  codegen.generate(program.get());
+  for (auto& ast_prog : astListManager) {
+    sonic::backend::SonicCodegen codegen(symbols);
+    codegen.generate(ast_prog);
+  }
 }
 
 void run_project() {
+  std::string f = sonic::config::project_path;
 
+  std::string content(read_file(f));
+
+  if (content.empty()) {
+    std::cerr << "\033[31m(error)\033[0m file '" << f << "' is empty or cannot be read.\n";
+    return;
+  }
+
+  sonic::startup::setProjectRoot(f);
+
+  DiagnosticEngine diag;
+  sonic::frontend::Lexer lexer(content, getFullPath(f));
+  lexer.diag = &diag;
+  sonic::frontend::Parser parser(getFullPath(f), &lexer);
+  parser.diag = &diag;
+  auto program = parser.parse();
+
+  cfg::project_build = sonic::io::resolvePath(sonic::io::getFullPath(cfg::project_root + "/build"));
+  auto symbols = new Symbol();
+
+  SemanticAnalyzer analyzer(symbols);
+  analyzer.filepath = sonic::io::getPathWithoutFile(f);
+  analyzer.diag = &diag;
+  analyzer.analyze(program.get());
+
+  diag.flush();
+
+  for (auto& ast_prog : astListManager) {
+    sonic::backend::SonicCodegen codegen(symbols);
+    codegen.generate(ast_prog);
+  }
 }

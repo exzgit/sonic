@@ -53,6 +53,9 @@ enum class TokenType {
   MODULE,
   ALIAS,
   IN,
+  TRY,
+  CATCH,
+  FINALLY,
 
   LEFTPAREN,
   RIGHTPAREN,
@@ -140,6 +143,9 @@ inline std::string tokenTypeToValue(TokenType t) {
     case TokenType::MODULE:   return "module";
     case TokenType::ALIAS:    return "as";
     case TokenType::IN:       return "in";
+    case TokenType::TRY:       return "try";
+    case TokenType::CATCH:       return "catch";
+    case TokenType::FINALLY:       return "finally";
 
 
     // types
@@ -214,117 +220,6 @@ inline std::string tokenTypeToValue(TokenType t) {
   return "<unknown>";
 }
 
-
-inline const std::string tokenTypeToString(TokenType t) {
-  switch (t) {
-    case TokenType::ENDOFFILE: return "ENDOFFILE";
-
-    case TokenType::IDENT:    return "IDENT";
-    case TokenType::NUMBER:   return "NUMBER";
-    case TokenType::TRUE:     return "TRUE";
-    case TokenType::FALSE:    return "FALSE";
-    case TokenType::STRLIT:   return "STRLIT";
-    case TokenType::CHARLIT:  return "CHARLIT";
-    case TokenType::NONE:     return "NONE";
-
-    case TokenType::FUNCT:    return "FUNCT";
-    case TokenType::RETURN:   return "RETURN";
-    case TokenType::LET:      return "LET";
-    case TokenType::PUBLIC:   return "PUBLIC";
-    case TokenType::CONST:    return "CONST";
-    case TokenType::STATIC:   return "STATIC";
-    case TokenType::EXTERN:   return "EXTERN";
-    case TokenType::IF:       return "IF";
-    case TokenType::ELSE:     return "ELSE";
-    case TokenType::WHILE:    return "WHILE";
-    case TokenType::FOR:      return "FOR";
-    case TokenType::BREAK:    return "BREAK";
-    case TokenType::CONTINUE: return "CONTINUE";
-    case TokenType::DEFAULT:  return "DEFAULT";
-    case TokenType::CASE:     return "CASE";
-    case TokenType::SWITCH:   return "SWITCH";
-    case TokenType::STRUCT:   return "STRUCT";
-    case TokenType::ENUM:     return "ENUM";
-    case TokenType::NEW:      return "NEW";
-    case TokenType::SELF:     return "SELF";
-    case TokenType::ALIAS:    return "ALIAS";
-    case TokenType::IN:       return "IN";
-
-    case TokenType::I32:  return "I32";
-    case TokenType::I64:  return "I64";
-    case TokenType::I128: return "I128";
-    case TokenType::F32:  return "F32";
-    case TokenType::F64:  return "F64";
-    case TokenType::VOID: return "VOID";
-    case TokenType::BOOL: return "BOOL";
-    case TokenType::STR:  return "STR";
-    case TokenType::CHAR: return "CHAR";
-    case TokenType::ANY:  return "ANY";
-    case TokenType::MODULE:  return "MODULE";
-
-    case TokenType::IMPORT: return "IMPORT";
-    case TokenType::USE:    return "USE";
-
-    case TokenType::LEFTPAREN:    return "LEFTPAREN";
-    case TokenType::RIGHTPAREN:   return "RIGHTPAREN";
-    case TokenType::LEFTBRACE:    return "LEFTBRACE";
-    case TokenType::RIGHTBRACE:   return "RIGHTBRACE";
-    case TokenType::LEFTBRACKET:  return "LEFTBRACKET";
-    case TokenType::RIGHTBRACKET: return "RIGHTBRACKET";
-
-    case TokenType::SEMICOLON:    return "SEMICOLON";
-    case TokenType::COLON:        return "COLON";
-    case TokenType::COLON_COLON:  return "COLON_COLON";
-    case TokenType::COMMA:        return "COMMA";
-    case TokenType::DOT:          return "DOT";
-
-    case TokenType::LESS:          return "LESS";
-    case TokenType::GREATER:       return "GREATER";
-    case TokenType::LESS_EQUAL:    return "LESS_EQUAL";
-    case TokenType::GREATER_EQUAL: return "GREATER_EQUAL";
-    case TokenType::EQUAL:         return "EQUAL";
-    case TokenType::NOT_EQUAL:     return "NOT_EQUAL";
-    case TokenType::IS_EQUAL:      return "IS_EQUAL";
-
-    case TokenType::ARROW: return "ARROW";
-
-    case TokenType::PLUS:     return "PLUS";
-    case TokenType::MINUS:    return "MINUS";
-    case TokenType::STAR:     return "STAR";
-    case TokenType::DIV:      return "DIV";
-    case TokenType::PERCENT:  return "PERCENT";
-    case TokenType::POWER:    return "POWER";
-
-    case TokenType::PLUS_EQUAL:    return "PLUS_EQUAL";
-    case TokenType::MINUS_EQUAL:   return "MINUS_EQUAL";
-    case TokenType::STAR_EQUAL:    return "STAR_EQUAL";
-    case TokenType::DIV_EQUAL:     return "DIV_EQUAL";
-    case TokenType::PERCENT_EQUAL: return "PERCENT_EQUAL";
-    case TokenType::POWER_EQUAL:   return "POWER_EQUAL";
-
-    case TokenType::AND:        return "AND";
-    case TokenType::OR:         return "OR";
-    case TokenType::XOR:        return "XOR";
-    case TokenType::AMPERSAND:  return "AMPERSAND";
-    case TokenType::PIPE:       return "PIPE";
-
-    case TokenType::EXCLAMATION: return "EXCLAMATION";
-    case TokenType::QUESTION:    return "QUESTION";
-    case TokenType::AT:          return "AT";
-    case TokenType::HASH:        return "HASH";
-    case TokenType::DOLLAR:      return "DOLLAR";
-
-    case TokenType::VARIADIC: return "VARIADIC";
-    case TokenType::RANGE:    return "RANGE";
-
-    case TokenType::INVALID: return "INVALID";
-    case TokenType::UNKNOWN: return "UNKNOWN";
-  }
-
-  return "UNKNOWN";
-}
-
-
 const std::unordered_map<std::string, TokenType> keywords = {
   {"func", TokenType::FUNCT},
   {"return", TokenType::RETURN},
@@ -364,6 +259,9 @@ const std::unordered_map<std::string, TokenType> keywords = {
   {"module", TokenType::MODULE},
   {"as", TokenType::ALIAS},
   {"in", TokenType::IN},
+  {"try", TokenType::TRY},
+  {"catch", TokenType::CATCH},
+  {"finally", TokenType::FINALLY},
 };
 
 const std::unordered_map<std::string, TokenType> punctuation = {

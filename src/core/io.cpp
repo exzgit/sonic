@@ -70,12 +70,10 @@ namespace sonic::io {
   void create_folder(const std::string& path) {
     if (!fs::exists(path)) {
         if (fs::create_directories(path)) {
-            std::cout << "Folder created: " << path << "\n";
         } else {
             std::cerr << "Failed to create folder: " << path << "\n";
         }
     } else {
-        std::cout << "Folder already exists: " << path << "\n";
     }
   }
 
@@ -143,4 +141,20 @@ namespace sonic::io {
   std::string getFullPath(const std::string& path) {
     return std::filesystem::absolute(path).string();
   }
+
+  std::string cutPath(const std::string& path, const std::string& prefix) {
+    size_t pos = path.find(prefix);
+    if (pos == std::string::npos) {
+      return path;
+    }
+
+    pos += prefix.size();
+
+    if (pos < path.size() && path[pos] == '/') {
+      pos++;
+    }
+
+    return path.substr(pos);
+  }
+
 }
